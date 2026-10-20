@@ -1,6 +1,6 @@
 # Prototip „Vulcanul” — WebXR AR (Android Chrome)
 
-Un singur fișier `index.html` (three.js din CDN, texturi procedurale, fără fișiere extra). Pe **Android Chrome cu ARCore** pornește AR real: caută **masa** (planul mare), nu obiectele mici de pe ea, arată un reticul galben, un tap pune vulcanul, butonul **„Erupe!”** pornește lava, fum și sunet. Pe desktop / iPhone se deschide automat **modul 3D de previzualizare** (fără cameră).
+`index.html` încarcă three.js din CDN și un vulcan sculptat (`assets/volcano.glb`, comprimat meshopt) cu texturi foto CC0 (rocă Poly Haven, lavă ambientCG — vezi [`CREDITS.md`](CREDITS.md)). La deschidere apare „Se încarcă vulcanul…”. Pe **Android Chrome cu ARCore** pornește AR real: caută **masa** (planul mare), nu obiectele mici de pe ea, arată un reticul galben, un tap pune vulcanul, butonul **„Erupe!”** pornește lava, fum și sunet. Pe desktop / iPhone se deschide automat **modul 3D de previzualizare** (fără cameră). Poți apropia camera (ciupire sau rotiță) ca să te uiți în crater.
 
 **GitHub Pages (main, rădăcină):** https://szabolcsszikszaiolti-svg.github.io/ar-play-la/
 
@@ -39,7 +39,8 @@ Deschide pe telefon linkul `https://...` afișat de tunel.
 3. Stai pe scaun, ține telefonul **puțin mai sus** și mișcă-l încet deasupra unei mese luminate, cu textură (nu sticlă/alb lucios). Apare **reticulul galben pe masă**, nu pe tastatură, mouse sau piciorul monitorului. Dacă nu găsește masa, textul spune: „Ține telefonul puțin mai sus și mișcă-l încet”.
 4. **Atinge ecranul** → vulcanul apare pe masă, cu umbră de contact. Lumina ar trebui să semene cu camera (dacă telefonul dă light estimation).
 5. Apasă **„🔥 Erupe!”** → lavă pe pante, fum, scântei, un ușor tremur, sunet. **🔊** (stânga sus) oprește sunetul. Apoi cardul „Ce s-a întâmplat?”.
-6. **„↺ Mută vulcanul”** → îl poți pune în alt loc. **„✕ Ieși”** închide AR.
+6. Apropie telefonul și uită-te **în crater**: pereți de rocă, lac de lavă, luciu de căldură. La erupție, lava de pe pante are crustă și fum moale deasupra.
+7. **„↺ Mută vulcanul”** → îl poți pune în alt loc. **„✕ Ieși”** închide AR.
 
 ### Probleme frecvente
 - *Reticulul sare pe obiecte mici:* ține telefonul mai de sus, ca să vadă toată masa, și mișcă-l încet. Chrome nou (cu plane detection) ignoră planurile mici; pe Chrome mai vechi se folosesc mai multe raze în jos și se păstrează suprafața cea mai joasă.
@@ -52,7 +53,7 @@ Safari pe iOS **nu** suportă WebXR AR, deci pe iPhone se vede doar modul 3D (ro
 
 ## Verificat pe box
 - Sintaxa JS (`node --check`)
-- Modul fallback 3D în Chrome headless, servit din subcalea `/ar-play-la/`: fără erori în consolă, „Erupe!” pornește lavă / fum / scântei, cardul apare
-- **De retestat pe telefon:** reticulul de pe scaun (masa, nu tastatura), lumina din cameră, sunetul, și dacă erupția rămâne fluidă
+- Modul fallback 3D în Chrome headless, servit din subcalea `/ar-play-la/`: fără erori în consolă, bara de încărcare dispare, „Erupe!” pornește lavă / fum / scântei
+- **De retestat pe telefon:** apropie-te și uită-te în crater (rocă, lac de lavă, pereți), lava de pe pante la erupție, fumul, bara de încărcare, și dacă rămâne fluid. Plasarea pe masă de pe scaun e neschimbată față de versiunea anterioară.
 
 Specificația de produs: [`docs/MVP_SPEC.md`](docs/MVP_SPEC.md).

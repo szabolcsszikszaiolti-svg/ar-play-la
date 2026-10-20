@@ -31,9 +31,15 @@
   #card h3 { margin:0 0 6px; color:var(--orange); font-size:20px; }
   #card[hidden] { display:none; }
   #cardClose { position:absolute; top:6px; right:8px; background:transparent; color:#999; box-shadow:none; font-size:22px; padding:4px 8px; min-width:auto; }
+  #loader { position:fixed; inset:0; z-index:30; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; background:#1c1410; color:#fff8ee; font-size:22px; font-weight:bold; }
+  #loader[hidden] { display:none; }
+  #loader .bar { width:min(72vw, 280px); height:12px; background:#3a2a22; border-radius:99px; overflow:hidden; }
+  #loadBar { height:100%; width:0%; background:#ff7a1a; }
 </style>
 </head>
 <body>
+<div id="loader"><div>Se încarcă vulcanul…</div><div class="bar"><div id="loadBar"></div></div></div>
 <div id="overlay">
   <div id="title">🌋 AR Play Lab</div>
   <div id="hint">Se încarcă...</div>
@@ -63,6 +69,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 const $ = (id) => document.getElementById(id);
 const hint = $('hint'), arBtn = $('arBtn'), eruptBtn = $('eruptBtn'), resetBtn = $('resetBtn'),
@@ -90,17 +98,17 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearAlpha(0);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.02;
 renderer.xr.enabled = true;
 renderer.xr.setFramebufferScaleFactor(0.9);
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 20);
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.004, 20);
 
-const hemi = new THREE.HemisphereLight(0xfff4e8, 0x6a6240, 0.55);
+const hemi = new THREE.HemisphereLight(0xfff4e8, 0x5c5640, 1.15);
 scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xfff1dd, 2.4);
+const sun = new THREE.DirectionalLight(0xfff1dd, 7.5);
 sun.position.set(0.6, 1.4, 0.4);
 scene.add(sun);
 const HEMI_IDLE = hemi.intensity;
@@ -114,108 +122,19 @@ try {
   scene.environment = fallbackEnv;
 } catch (e) { /* direct lights still shade the rock */ }
 
-// ---------- Procedural textures (no external assets) ----------
-function hash2(ix, iy) {
-  let n = Math.imul(ix, 374761393) + Math.imul(iy, 668265263);
-  n = Math.imul(n ^ (n >>> 13), 1274126177);
-  return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
-}
-function noise2(x, y) {
-  const x0 = Math.floor(x), y0 = Math.floor(y);
-  const fx = x - x0, fy = y - y0;
-  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
-  const a = hash2(x0, y0), b = hash2(x0 + 1, y0), c = hash2(x0, y0 + 1), d = hash2(x0 + 1, y0 + 1);
-  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
-}
-function fbm(x, y) {
-  let v = 0, a = 0.5, f = 1;
-  for (let i = 0; i < 4; i++) { v += a * noise2(x * f, y * f); a *= 0.5; f *= 2; }
-  return v;
-}
-function dataTex(w, h, fill, colorSpace) {
-  const data = new Uint8Array(w * h * 4);
-  fill(data, w, h);
-  const tex = new THREE.DataTexture(data, w, h);
-  tex.colorSpace = colorSpace;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.needsUpdate = true;
-  tex.anisotropy = 4;
-  return tex;
-}
-const albedo = dataTex(256, 256, (data, w, h) => {
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const u = x / w, v = y / h;
-      const n = fbm(u * 6, v * 5);
-      const n2 = noise2(u * 22 + 4, v * 18);
-      const scoria = Math.min(1, Math.max(0, (n - 0.42) * 2.4));
-      let r = 74 + scoria * 58, g = 66 + scoria * 18, b = 60 + scoria * 6;
-      const ash = Math.pow(Math.max(0, n2 - 0.55), 1.3) * 1.8;
-      r += ash * 70; g += ash * 66; b += ash * 60;
-      const crack = Math.pow(Math.max(0, 0.48 - n), 1.5);
-      const shade = 1 - crack * 0.62;
-      const i = (y * w + x) * 4;
-      data[i] = Math.max(0, Math.min(255, r * shade));
-      data[i + 1] = Math.max(0, Math.min(255, g * shade));
-      data[i + 2] = Math.max(0, Math.min(255, b * shade));
-      data[i + 3] = 255;
-    }
-  }
-}, THREE.SRGBColorSpace);
-const rough = dataTex(256, 256, (data, w, h) => {
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const n = noise2(x / w * 10, y / h * 8);
-      const r = Math.max(0, Math.min(255, (0.78 + n * 0.22) * 255));
-      const i = (y * w + x) * 4;
-      data[i] = data[i + 1] = data[i + 2] = r; data[i + 3] = 255;
-    }
-  }
-}, THREE.NoColorSpace);
-const normalMap = dataTex(256, 256, (data, w, h) => {
-  const height = (x, y) => fbm(x / w * 6, y / h * 5);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const hl = height(x - 1, y), hr = height(x + 1, y);
-      const hd = height(x, y - 1), hu = height(x, y + 1);
-      const dx = (hl - hr) * 2.2, dy = (hd - hu) * 2.2;
-      const nx = -dx, ny = -dy, nz = 1;
-      const inv = 1 / Math.hypot(nx, ny, nz);
-      const i = (y * w + x) * 4;
-      data[i] = (nx * inv * 0.5 + 0.5) * 255;
-      data[i + 1] = (ny * inv * 0.5 + 0.5) * 255;
-      data[i + 2] = (nz * inv * 0.5 + 0.5) * 255;
-      data[i + 3] = 255;
-    }
-  }
-}, THREE.NoColorSpace);
-const heat = dataTex(128, 128, (data, w, h) => {
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const u = x / w, v = y / h;
-      const cracks = Math.pow(Math.max(0, 0.55 - noise2(u * 9, v * 7)), 2.4);
-      const rim = Math.pow(Math.max(0, v - 0.62) / 0.38, 1.6);
-      const glow = Math.min(1, cracks * 0.35 + rim * 0.85) * (0.65 + 0.35 * noise2(u * 20, v * 14));
-      const i = (y * w + x) * 4;
-      data[i] = glow * 255; data[i + 1] = glow * glow * 140; data[i + 2] = glow * glow * glow * 40; data[i + 3] = 255;
-    }
-  }
-}, THREE.SRGBColorSpace);
-const lavaTex = dataTex(64, 256, (data, w, h) => {
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const u = x / w, v = y / h;
-      const across = Math.abs(u - 0.5) * 2;
-      const n = noise2(u * 3, v * 14);
-      const hot = Math.max(0, 1 - across * 1.25) * (0.72 + 0.28 * n);
-      const i = (y * w + x) * 4;
-      data[i] = 255;
-      data[i + 1] = Math.min(255, (0.12 + hot * 0.82) * 255);
-      data[i + 2] = Math.min(255, hot * hot * 40);
-      data[i + 3] = Math.min(255, 170 + hot * 85);
-    }
-  }
-}, THREE.SRGBColorSpace);
+// ---------- Volcano (meshopt glTF + CC0 photo textures) ----------
+const assetURL = (name) => new URL('./assets/' + name, import.meta.url).href;
+let H = 0.176;
+let poolSurface = 0.11;
+let paths = [];
+let flows = [];
+let pool = null;
+let rockMat = null;
+let flowMat = null;
+const uErupt = { value: 0.32 };
+const uTime = { value: 0 };
+const uHot = { value: 0.4 };
+
 function softDisc() {
   const s = 64, data = new Uint8Array(s * s * 4);
   for (let y = 0; y < s; y++) {
@@ -247,99 +166,6 @@ function shadowTex() {
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
-
-// ---------- Volcano shape ----------
-const H = 0.15, BASE_R = 0.118, RIM_R = 0.036, CRATER_DEPTH = 0.03, POOL_R = 0.015;
-function angleDiff(a, b) {
-  let d = a - b;
-  d = ((d + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-  return d;
-}
-function gully(ang) {
-  const lobe = (center, width) => {
-    const d = angleDiff(ang, center);
-    return Math.exp(-(d * d) / (2 * width * width));
-  };
-  // Strongest channel faces +Z so it points at the child after placement.
-  return lobe(Math.PI / 2, 0.28) + lobe(Math.PI / 2 + 2.05, 0.24) * 0.75 + lobe(Math.PI / 2 - 1.75, 0.22) * 0.62;
-}
-function radiusAt(t, ang) {
-  const foot = t < 0.2 ? (0.2 - t) / 0.2 : 0;
-  const cone = RIM_R + (BASE_R - RIM_R) * Math.pow(1 - t, 0.7);
-  const flare = foot * foot * 0.05;
-  const cut = gully(ang) * (0.01 + 0.018 * Math.sin(Math.PI * Math.min(1, t + 0.05)));
-  const ridge = 0.005 * Math.pow(Math.max(0, Math.sin(ang * 6 + 0.7)), 4) * Math.sin(Math.PI * t);
-  const n = (noise2(Math.cos(ang) * 1.6 + 2, t * 3.1) - 0.5) * 0.007;
-  const oval = 1 + 0.055 * Math.cos(ang - 0.7);
-  return Math.max(RIM_R * 0.78, (cone + flare - cut + ridge + n) * oval);
-}
-function gullyAngles() {
-  const samples = [];
-  for (let i = 0; i < 90; i++) {
-    const ang = (i / 90) * Math.PI * 2;
-    samples.push({ ang, d: gully(ang) });
-  }
-  samples.sort((a, b) => b.d - a.d);
-  const picked = [];
-  for (const s of samples) {
-    if (picked.every((p) => Math.abs(angleDiff(p, s.ang)) > 0.9)) picked.push(s.ang);
-    if (picked.length === 3) break;
-  }
-  return picked;
-}
-function buildPath(ang) {
-  const pts = [];
-  const N = 22;
-  for (let i = 0; i < N; i++) {
-    const t = 0.98 - (i / (N - 1)) * 0.93;
-    const r = radiusAt(t, ang);
-    pts.push(new THREE.Vector3(Math.cos(ang) * r, t * H, Math.sin(ang) * r));
-  }
-  return pts;
-}
-function buildRock() {
-  const NA = 52, NS = 22, NC = 7;
-  const rings = NS + NC;
-  const stride = NA + 1;
-  const pos = [], nrm = [], uv = [], col = [], idx = [];
-  for (let y = 0; y <= rings; y++) {
-    for (let a = 0; a <= NA; a++) {
-      const ang = (a / NA) * Math.PI * 2;
-      let py, pr, tSurf;
-      if (y <= NS) {
-        tSurf = y / NS;
-        py = tSurf * H;
-        pr = radiusAt(tSurf, ang);
-      } else {
-        const u = (y - NS) / NC;
-        tSurf = 1;
-        const rim = radiusAt(1, ang);
-        py = H - u * u * CRATER_DEPTH;
-        pr = rim + (POOL_R - rim) * u;
-      }
-      pos.push(Math.cos(ang) * pr, py, Math.sin(ang) * pr);
-      uv.push((a / NA) * 3, y <= NS ? (y / NS) * 0.82 : 0.82 + ((y - NS) / NC) * 0.18);
-      const gul = gully(ang);
-      let cr = 0.92 - gul * 0.28, cg = 0.9 - gul * 0.32, cb = 0.88 - gul * 0.34;
-      if (y > NS) { const k = (y - NS) / NC; cr *= 1 - k * 0.45; cg *= 1 - k * 0.55; cb *= 1 - k * 0.6; }
-      if (y / NS < 0.16 && y <= NS) { cr = cr * 0.7 + 0.28; cg = cg * 0.7 + 0.26; cb = cb * 0.7 + 0.24; }
-      col.push(cr, cg, cb);
-    }
-  }
-  for (let y = 0; y < rings; y++) {
-    for (let a = 0; a < NA; a++) {
-      const i00 = y * stride + a, i10 = i00 + 1, i01 = i00 + stride, i11 = i01 + 1;
-      idx.push(i00, i01, i10, i10, i01, i11);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
-}
 function buildRibbon(points) {
   const pos = [], uv = [], idx = [];
   const n = points.length;
@@ -355,10 +181,10 @@ function buildRibbon(points) {
     side.set(-tang.z, 0, tang.x);
     if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
     side.normalize();
-    const w = 0.006 + t * 0.016;
-    const lift = 0.0045;
-    pos.push(p.x + side.x * w, p.y + lift, p.z + side.z * w);
-    pos.push(p.x - side.x * w, p.y + lift, p.z - side.z * w);
+    const w = 0.0065 + t * 0.012;
+    const y = p.y - 0.0032;
+    pos.push(p.x + side.x * w, y, p.z + side.z * w);
+    pos.push(p.x - side.x * w, y, p.z - side.z * w);
     uv.push(0, t, 1, t);
   }
   for (let i = 0; i < n - 1; i++) {
@@ -372,93 +198,229 @@ function buildRibbon(points) {
   geo.setDrawRange(0, 0);
   return geo;
 }
+function makeLavaMaterial(edgeFade) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: null },
+      uEmit: { value: null },
+      uTime,
+      uHot,
+      uEdge: { value: edgeFade },
+    },
+    toneMapped: true,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D uColor;
+      uniform sampler2D uEmit;
+      uniform float uTime;
+      uniform float uHot;
+      uniform float uEdge;
+      varying vec2 vUv;
+      void main() {
+        vec2 uv = vec2(vUv.x, fract(vUv.y * 1.6 - uTime * (0.12 + uHot * 0.45)));
+        uv.x = fract(uv.x + sin((vUv.y * 8.0) + uTime * 1.7) * 0.02);
+        vec3 crust = texture2D(uColor, uv).rgb;
+        vec3 glow = texture2D(uEmit, vec2(uv.x * 1.3, fract(uv.y * 0.8 + uTime * 0.07))).rgb;
+        float cracks = clamp(glow.r * 1.15 + crust.r * 0.45 + crust.g * 0.2, 0.0, 1.25);
+        float edge = mix(1.0, smoothstep(0.0, 0.12, vUv.x) * smoothstep(1.0, 0.88, vUv.x), uEdge);
+        cracks *= edge;
+        vec3 crustCol = crust * vec3(0.42, 0.12, 0.04);
+        vec3 magma = vec3(1.0, 0.34, 0.03);
+        vec3 whiteHot = vec3(1.0, 0.86, 0.42);
+        vec3 col = mix(crustCol, magma, 0.55 + 0.45 * smoothstep(0.08, 0.5, cracks));
+        col = mix(col, whiteHot, smoothstep(0.42, 0.9, cracks) * (0.35 + uHot * 0.7));
+        gl_FragColor = vec4(col * (0.9 + cracks * (0.55 + uHot * 0.45)), 1.0);
+      }
+    `,
+  });
+}
+function prepTexture(tex, colorSpace) {
+  tex.colorSpace = colorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy() || 1);
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  return tex;
+}
 
-const rockMat = new THREE.MeshStandardMaterial({
-  map: albedo,
-  roughnessMap: rough,
-  normalMap,
-  normalScale: new THREE.Vector2(0.9, 0.9),
-  roughness: 0.94,
-  metalness: 0.02,
-  vertexColors: true,
-  emissive: new THREE.Color(0xff4a10),
-  emissiveMap: heat,
-  emissiveIntensity: 0.35,
-  envMapIntensity: 0.7,
-  side: THREE.DoubleSide,
-});
 const volcano = new THREE.Group();
 const shake = new THREE.Group();
 volcano.add(shake);
-const rock = new THREE.Mesh(buildRock(), rockMat);
-shake.add(rock);
-
-const paths = gullyAngles().map(buildPath);
-const flowMap = lavaTex.clone();
-flowMap.needsUpdate = true;
-const poolMap = lavaTex.clone();
-poolMap.needsUpdate = true;
-const flowMat = new THREE.MeshBasicMaterial({
-  map: flowMap, transparent: true, depthWrite: false, toneMapped: false,
-  side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-});
-const flows = paths.map((pts) => {
-  const mesh = new THREE.Mesh(buildRibbon(pts), flowMat);
-  mesh.frustumCulled = false;
-  mesh.visible = false;
-  shake.add(mesh);
-  return mesh;
-});
-const pool = new THREE.Mesh(new THREE.CircleGeometry(POOL_R * 1.25, 20), new THREE.MeshBasicMaterial({
-  map: poolMap, color: 0xfff2e6, toneMapped: false,
-}));
-pool.rotation.x = -Math.PI / 2;
-pool.position.y = H - CRATER_DEPTH + 0.003;
-shake.add(pool);
+const craterLight = new THREE.PointLight(0xff6a20, 0.012, 0.12, 2);
+craterLight.position.y = H - 0.02;
+shake.add(craterLight);
 const craterGlow = new THREE.Sprite(new THREE.SpriteMaterial({
   map: softTex, color: 0xff5a12, transparent: true, blending: THREE.AdditiveBlending,
-  depthWrite: false, toneMapped: false, opacity: 0.8,
+  depthWrite: false, toneMapped: false, opacity: 0.55,
 }));
-craterGlow.position.y = H - CRATER_DEPTH + 0.012;
-craterGlow.scale.set(0.055, 0.04, 1);
+craterGlow.position.y = 0.11;
+craterGlow.scale.set(0.028, 0.02, 1);
 shake.add(craterGlow);
 const outerGlow = craterGlow.clone();
 outerGlow.material = craterGlow.material.clone();
-outerGlow.material.opacity = 0.22;
-outerGlow.scale.set(0.1, 0.07, 1);
+outerGlow.material.opacity = 0.18;
+outerGlow.scale.set(0.055, 0.04, 1);
 shake.add(outerGlow);
-const craterLight = new THREE.PointLight(0xff6a22, 0.9, 0.32, 2);
-craterLight.position.y = H - 0.01;
-shake.add(craterLight);
-
-const shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), new THREE.MeshBasicMaterial({
+const shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.52), new THREE.MeshBasicMaterial({
   map: shadowTex(), transparent: true, depthWrite: false, toneMapped: false,
 }));
 shadow.rotation.x = -Math.PI / 2;
 shadow.position.y = 0.003;
 shadow.renderOrder = -1;
 volcano.add(shadow);
-
-const pebbleGeo = new THREE.IcosahedronGeometry(1, 0);
-for (let i = 0; i < 5; i++) {
-  const mat = rockMat.clone();
-  mat.vertexColors = false;
-  mat.color = new THREE.Color().setRGB(0.85 + (i % 2) * 0.1, 0.78, 0.72);
-  const m = new THREE.Mesh(pebbleGeo, mat);
-  const a = (i / 5) * Math.PI * 2 + 0.5;
-  const rr = 0.095 + (i % 2) * 0.025;
-  const sc = 0.011 + (i % 3) * 0.004;
-  m.position.set(Math.cos(a) * rr, sc * 0.45, Math.sin(a) * rr);
-  m.scale.set(sc * 1.5, sc * 0.65, sc * 1.15);
-  m.rotation.set(i * 0.6, a, i);
-  shake.add(m);
-}
-
 volcano.visible = false;
 scene.add(volcano);
 
+async function loadVolcano() {
+  const bar = document.getElementById('loadBar');
+  const manager = new THREE.LoadingManager();
+  manager.onProgress = (_url, loaded, total) => {
+    if (bar && total) bar.style.width = Math.round((loaded / total) * 100) + '%';
+  };
+  const texLoader = new THREE.TextureLoader(manager);
+  const gltfLoader = new GLTFLoader(manager);
+  if (MeshoptDecoder.ready) await MeshoptDecoder.ready;
+  gltfLoader.setMeshoptDecoder(MeshoptDecoder);
+  const [gltf, albedo, normal, rough, lavaColor, lavaEmit, meta] = await Promise.all([
+    gltfLoader.loadAsync(assetURL('volcano.glb')),
+    texLoader.loadAsync(assetURL('rock_albedo.webp')),
+    texLoader.loadAsync(assetURL('rock_normal.webp')),
+    texLoader.loadAsync(assetURL('rock_rough.webp')),
+    texLoader.loadAsync(assetURL('lava_color.webp')),
+    texLoader.loadAsync(assetURL('lava_emit.webp')),
+    fetch(assetURL('volcano.json')).then((r) => { if (!r.ok) throw new Error('meta'); return r.json(); }),
+  ]);
+  prepTexture(albedo, THREE.SRGBColorSpace);
+  prepTexture(normal, THREE.NoColorSpace);
+  prepTexture(rough, THREE.NoColorSpace);
+  prepTexture(lavaColor, THREE.SRGBColorSpace);
+  prepTexture(lavaEmit, THREE.NoColorSpace);
+
+  H = meta.height;
+  poolSurface = meta.poolY;
+  paths = meta.paths.map((path) => path.map((p) => new THREE.Vector3(p[0], p[1], p[2])));
+
+  rockMat = new THREE.MeshStandardMaterial({
+    map: albedo,
+    normalMap: normal,
+    roughnessMap: rough,
+    normalScale: new THREE.Vector2(1.15, 1.15),
+    roughness: 0.92,
+    metalness: 0.02,
+    envMapIntensity: 0.4,
+    emissive: new THREE.Color(0x000000),
+    emissiveIntensity: 1,
+  });
+  rockMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uErupt = uErupt;
+    shader.uniforms.uRockScale = { value: 4.2 };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <uv_pars_vertex>', '#include <uv_pars_vertex>\nattribute vec2 uv1;\nvarying float vHeat;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;')
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvHeat = uv1.x;')
+      .replace('#include <normal_vertex>', '#include <normal_vertex>\n\tvWNrm = normalize(mat3(modelMatrix) * objectNormal);\n\tvWPos = (modelMatrix * vec4(position, 1.0)).xyz;');
+    shader.fragmentShader = `
+uniform float uErupt;
+uniform float uRockScale;
+varying float vHeat;
+varying vec3 vWPos;
+varying vec3 vWNrm;
+vec3 rockBlend(vec3 n) {
+  vec3 b = pow(abs(n), vec3(4.0));
+  return b / (b.x + b.y + b.z + 1e-4);
+}
+` + shader.fragmentShader
+      .replace('#include <normal_fragment_maps>', `
+        vec3 nrmW = normalize(vWNrm);
+        vec3 bN = rockBlend(nrmW);
+        vec3 axisX = vec3(nrmW.x >= 0.0 ? 1.0 : -1.0, 0.0, 0.0);
+        vec3 axisY = vec3(0.0, nrmW.y >= 0.0 ? 1.0 : -1.0, 0.0);
+        vec3 axisZ = vec3(0.0, 0.0, nrmW.z >= 0.0 ? 1.0 : -1.0);
+        vec3 mx = texture2D(normalMap, vWPos.yz * uRockScale).xyz * 2.0 - 1.0;
+        vec3 my = texture2D(normalMap, vWPos.xz * uRockScale).xyz * 2.0 - 1.0;
+        vec3 mz = texture2D(normalMap, vWPos.xy * uRockScale).xyz * 2.0 - 1.0;
+        mx.xy *= normalScale; my.xy *= normalScale; mz.xy *= normalScale;
+        vec3 nX = normalize(vec3(0.0, 0.0, 1.0) * mx.x + vec3(0.0, 1.0, 0.0) * mx.y + axisX * mx.z);
+        vec3 nY = normalize(vec3(1.0, 0.0, 0.0) * my.x + vec3(0.0, 0.0, 1.0) * my.y + axisY * my.z);
+        vec3 nZ = normalize(vec3(1.0, 0.0, 0.0) * mz.x + vec3(0.0, 1.0, 0.0) * mz.y + axisZ * mz.z);
+        normal = normalize(mat3(viewMatrix) * normalize(nX * bN.x + nY * bN.y + nZ * bN.z));
+      `)
+      .replace('#include <map_fragment>', `
+        vec3 bC = rockBlend(normalize(vWNrm));
+        vec4 sampledDiffuseColor = texture2D(map, vWPos.yz * uRockScale) * bC.x
+          + texture2D(map, vWPos.xz * uRockScale) * bC.y
+          + texture2D(map, vWPos.xy * uRockScale) * bC.z;
+        diffuseColor *= sampledDiffuseColor;
+      `)
+      .replace('#include <roughnessmap_fragment>', `
+        vec3 bR = rockBlend(normalize(vWNrm));
+        float roughTex = dot(vec3(
+          texture2D(roughnessMap, vWPos.yz * uRockScale).g,
+          texture2D(roughnessMap, vWPos.xz * uRockScale).g,
+          texture2D(roughnessMap, vWPos.xy * uRockScale).g
+        ), bR);
+        float roughnessFactor = roughness * roughTex;
+      `)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        float heat = smoothstep(0.7, 1.0, clamp(vHeat, 0.0, 1.0));
+        totalEmissiveRadiance += vec3(0.45, 0.12, 0.015) * heat * uErupt;`);
+  };
+  rockMat.customProgramCacheKey = () => 'volcano-triplanar-v1';
+
+  // Meshopt quantization stores the sculpt in a normalized box and puts the
+  // real tabletop size on the node. The geometry alone is several times too big.
+  gltf.scene.updateMatrixWorld(true);
+  let rockGeo = null;
+  gltf.scene.traverse((obj) => {
+    if (obj.isMesh && !rockGeo) {
+      rockGeo = obj.geometry.clone();
+      rockGeo.applyMatrix4(obj.matrixWorld);
+    }
+  });
+  if (!rockGeo) throw new Error('mesh');
+  // The compressed normal accessor is a normalized integer. Writing unit
+  // floats into it truncates to 0 and the rock renders unlit.
+  rockGeo.deleteAttribute('normal');
+  rockGeo.computeVertexNormals();
+  try { rockGeo.computeTangents(); } catch (e) { /* derivative normals still shade */ }
+  const rock = new THREE.Mesh(rockGeo, rockMat);
+  shake.add(rock);
+
+  flowMat = makeLavaMaterial(1);
+  flowMat.uniforms.uColor.value = lavaColor;
+  flowMat.uniforms.uEmit.value = lavaEmit;
+  const poolMat = makeLavaMaterial(0);
+  poolMat.uniforms.uColor.value = lavaColor;
+  poolMat.uniforms.uEmit.value = lavaEmit;
+  flows = paths.map((pts) => {
+    const mesh = new THREE.Mesh(buildRibbon(pts), flowMat);
+    mesh.frustumCulled = false;
+    mesh.visible = false;
+    mesh.renderOrder = 2;
+    shake.add(mesh);
+    return mesh;
+  });
+  pool = new THREE.Mesh(new THREE.CircleGeometry(meta.poolR * 1.2, 48), poolMat);
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.y = meta.poolY;
+  pool.renderOrder = 2;
+  shake.add(pool);
+  craterLight.position.y = meta.poolY + 0.01;
+  craterGlow.position.y = meta.poolY + 0.012;
+  outerGlow.position.y = meta.poolY + 0.014;
+}
+
 // ---------- Particles ----------
-const sphere = new THREE.SphereGeometry(1, 6, 5);
+const sphere = new THREE.SphereGeometry(1, 10, 8);
 const ident = new THREE.Quaternion();
 const tmpM = new THREE.Matrix4();
 const tmpS = new THREE.Vector3();
@@ -489,7 +451,7 @@ const sparkMat = new THREE.MeshBasicMaterial({
 const lavaBits = makeBits(56, lavaMat);
 const sparks = makeBits(28, sparkMat);
 
-const PUFF_N = 36;
+const PUFF_N = 48;
 const puffGeo = new THREE.PlaneGeometry(1, 1);
 const puffOp = new THREE.InstancedBufferAttribute(new Float32Array(PUFF_N), 1);
 const puffCol = new THREE.InstancedBufferAttribute(new Float32Array(PUFF_N * 3), 3);
@@ -499,7 +461,7 @@ const puffMat = new THREE.ShaderMaterial({
   transparent: true,
   depthWrite: false,
   side: THREE.DoubleSide,
-  uniforms: { uMap: { value: softTex } },
+  uniforms: { uMap: { value: softTex }, uHot },
   vertexShader: `
     attribute float aOpacity;
     attribute vec3 aColor;
@@ -516,13 +478,24 @@ const puffMat = new THREE.ShaderMaterial({
   `,
   fragmentShader: `
     uniform sampler2D uMap;
+    uniform float uHot;
     varying float vO;
     varying vec3 vC;
     varying vec2 vUv;
     void main() {
-      float a = texture2D(uMap, vUv).a * vO;
-      if (a < 0.01) discard;
-      gl_FragColor = vec4(vC, a);
+      vec2 q = vUv * 2.0 - 1.0;
+      float r = length(q);
+      float grain = 0.5 + 0.5 * sin(q.x * 8.0 + q.y * 6.0);
+      float dens = smoothstep(1.05, 0.02, r + (grain - 0.5) * 0.16);
+      float core = smoothstep(0.85, 0.05, r);
+      float under = smoothstep(0.05, 0.95, 1.0 - vUv.y);
+      vec3 cool = vec3(0.28, 0.29, 0.31);
+      vec3 warm = vec3(0.95, 0.42, 0.1);
+      vec3 col = mix(cool, warm, under * uHot * (0.25 + 0.75 * core));
+      col *= (0.55 + 0.7 * core) * (0.65 + 0.35 * vC);
+      float a = dens * vO * (0.35 + 0.65 * core);
+      if (a < 0.02) discard;
+      gl_FragColor = vec4(col, a);
     }
   `,
 });
@@ -532,7 +505,7 @@ puffs.frustumCulled = false;
 puffs.renderOrder = 2;
 shake.add(puffs);
 const puffParts = Array.from({ length: PUFF_N }, (_, i) => ({
-  alive: false, ash: i >= 24, p: new THREE.Vector3(), v: new THREE.Vector3(), life: 0, max: 2.4, s: 0.05,
+  alive: false, ash: i >= 32, p: new THREE.Vector3(), v: new THREE.Vector3(), life: 0, max: 2.4, s: 0.05,
 }));
 const hiddenM = new THREE.Matrix4().makeScale(0, 0, 0);
 for (let i = 0; i < PUFF_N; i++) puffs.setMatrixAt(i, hiddenM);
@@ -576,10 +549,10 @@ function spawnPuff(ash) {
   for (const q of puffParts) {
     if (q.alive) continue;
     q.alive = true; q.ash = ash; q.life = 0;
-    q.p.set((Math.random() - 0.5) * 0.016, H + 0.02, (Math.random() - 0.5) * 0.016);
-    q.v.set((Math.random() - 0.5) * 0.025, ash ? 0.07 + Math.random() * 0.05 : 0.12 + Math.random() * 0.1, (Math.random() - 0.5) * 0.025);
-    q.max = ash ? 2.8 + Math.random() : 2.4 + Math.random() * 0.8;
-    q.s = ash ? 0.03 : 0.045;
+    q.p.set((Math.random() - 0.5) * 0.02, H + 0.012 + Math.random() * 0.02, (Math.random() - 0.5) * 0.02);
+    q.v.set((Math.random() - 0.5) * 0.035, ash ? 0.07 + Math.random() * 0.05 : 0.11 + Math.random() * 0.1, (Math.random() - 0.5) * 0.035);
+    q.max = ash ? 3.4 + Math.random() : 3.1 + Math.random() * 0.7;
+    q.s = ash ? 0.07 : 0.11;
     return;
   }
 }
@@ -614,16 +587,18 @@ function stopErupt() {
   card.hidden = true;
   killAllParticles();
   for (const mesh of flows) { mesh.visible = false; mesh.geometry.setDrawRange(0, 0); }
-  craterLight.intensity = 0.9;
-  craterGlow.scale.set(0.055, 0.04, 1);
-  outerGlow.scale.set(0.1, 0.07, 1);
-  rockMat.emissiveIntensity = 0.35;
+  craterLight.intensity = 0.012;
+  craterGlow.scale.set(0.028, 0.02, 1);
+  outerGlow.scale.set(0.05, 0.036, 1);
+  uErupt.value = 0.22;
+  uHot.value = 0.4;
   shake.rotation.set(0, 0, 0);
   shake.position.y = 0;
 }
 function erupt() {
   if (!volcano.visible) return;
   erupting = true; eruptAge = 0; spawnAcc = 0; puffAcc = 0;
+  for (let i = 0; i < 16; i++) spawnPuff(i > 11);
   card.hidden = true;
   clearTimeout(cardTimer);
   cardTimer = setTimeout(() => { card.hidden = false; }, 3600);
@@ -635,25 +610,23 @@ function updateEruption(dt, time) {
   if (erupting) eruptAge += dt;
   const fade = !erupting ? 0 : eruptAge < ERUPT_LEN ? 1 : Math.max(0, 1 - (eruptAge - ERUPT_LEN) / 2.4);
   const reveal = erupting ? Math.min(1, eruptAge / 1.25) : 0;
-  flowMat.opacity = 0.95 * fade;
-  flowMap.offset.y = -time * 0.55;
-  poolMap.offset.y = -time * (hot ? 0.35 : 0.08);
+  uTime.value = time;
+  uHot.value = 0.35 + fade * 1.05;
+  uErupt.value = 0.22 + fade * 1.65;
   for (const mesh of flows) {
     const count = mesh.geometry.index.count;
     mesh.geometry.setDrawRange(0, Math.floor(reveal * count));
     mesh.visible = reveal > 0.02 && fade > 0.02;
   }
   const pulse = 0.85 + (hot ? 0.15 * Math.sin(time * 28) : 0);
-  craterLight.intensity = 0.9 + fade * 3.2 * pulse;
-  const gs = 0.05 + fade * 0.035;
-  craterGlow.scale.set(gs, gs * 0.72, 1);
-  outerGlow.scale.set(gs * 1.8, gs * 1.15, 1);
-  craterGlow.material.opacity = 0.7 + fade * 0.25;
-  rockMat.emissiveIntensity = 0.35 + fade * 1.35;
-  pool.material.color.setHex(hot ? (Math.random() > 0.5 ? 0xfff6e8 : 0xffe2b0) : 0xffc48a);
+  craterLight.intensity = 0.012 + fade * 0.04 * pulse;
+  const gs = 0.026 + fade * 0.018;
+  craterGlow.scale.set(gs, gs * 0.7, 1);
+  outerGlow.scale.set(gs * 1.7, gs * 1.15, 1);
+  craterGlow.material.opacity = 0.4 + fade * 0.45;
 
   if (hot) {
-    spawnAcc += dt * 42; puffAcc += dt * 22;
+    spawnAcc += dt * 42; puffAcc += dt * 34;
     let n = spawnAcc | 0; spawnAcc -= n;
     while (n-- > 0) {
       const roll = Math.random();
@@ -719,9 +692,9 @@ function updateEruption(dt, time) {
     q.p.addScaledVector(q.v, dt);
     const k = q.life / q.max;
     if (k >= 1) { q.alive = false; puffs.setMatrixAt(i, hiddenM); puffOp.setX(i, 0); continue; }
-    const grow = q.s + k * (q.ash ? 0.09 : 0.13);
+    const grow = q.s + k * (q.ash ? 0.14 : 0.2);
     const env = Math.sin(Math.min(1, k) * Math.PI);
-    const op = (0.25 + 0.75 * env) * (q.ash ? 0.45 : 0.62) * (erupting ? Math.max(fade, 0.45) : 0);
+    const op = (0.35 + 0.65 * env) * (q.ash ? 0.55 : 0.78) * (erupting ? Math.max(fade, 0.55) : 0);
     tmpS.set(grow, grow, 1);
     tmpM.compose(q.p, localQ, tmpS);
     puffs.setMatrixAt(i, tmpM);
@@ -1083,7 +1056,7 @@ function startPreview() {
   controls.target.set(0, 0.08, 0);
   controls.enableDamping = true;
   controls.enablePan = false;
-  controls.minDistance = 0.22;
+  controls.minDistance = 0.05;
   controls.maxDistance = 1.6;
   controls.maxPolarAngle = Math.PI * 0.49;
   controls.update();
@@ -1259,7 +1232,7 @@ function loop(timeMs, frame) {
     } catch (e) { /* probe not ready */ }
   }
   if (xrSession && !volcano.visible) updatePlacement(frame, dt, time);
-  if (controls) controls.update();
+  if (controls && controls.enabled) controls.update();
   updateEruption(dt, time);
   updateAudio();
   renderer.render(scene, camera);
@@ -1284,7 +1257,29 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+function focusCrater() {
+  camera.near = 0.002;
+  camera.fov = 42;
+  camera.updateProjectionMatrix();
+  // Inside the mouth, a few centimetres above the lip, looking down at the pool.
+  camera.position.set(0.004, H + 0.036, 0.01);
+  camera.lookAt(0, poolSurface, -0.004);
+  puffs.visible = false;
+  lavaBits.mesh.visible = false;
+  sparks.mesh.visible = false;
+  if (controls) controls.enabled = false;
+}
 async function init() {
+  try {
+    await loadVolcano();
+  } catch (e) {
+    const loader = document.getElementById('loader');
+    if (loader) loader.firstElementChild.textContent = 'Nu am putut încărca vulcanul.';
+    setHint('Nu am putut încărca vulcanul. Reîncarcă pagina.');
+    return;
+  }
+  const loader = document.getElementById('loader');
+  if (loader) loader.hidden = true;
   let arOK = false;
   try { arOK = !!(navigator.xr && await navigator.xr.isSessionSupported('immersive-ar')); } catch (e) { arOK = false; }
   startPreview();
@@ -1295,7 +1290,7 @@ async function init() {
     setHint('AR are nevoie de HTTPS. Deocamdată, joacă-te în modul 3D 👇');
   }
   renderer.setAnimationLoop(loop);
-  window.__arPlayLab = { arOK, erupt, particles: aliveCount };
+  window.__arPlayLab = { arOK, erupt, particles: aliveCount, focusCrater };
 }
 init();
 </script>
