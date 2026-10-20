@@ -54,6 +54,6 @@ Safari pe iOS **nu** suportă WebXR AR, deci pe iPhone se vede doar modul 3D (ro
 ## Verificat pe box
 - Sintaxa JS (`node --check`)
 - Modul fallback 3D în Chrome headless, servit din subcalea `/ar-play-la/`: fără erori în consolă, bara de încărcare dispare, „Erupe!” pornește lavă / fum / scântei
-- **De retestat pe telefon:** erupția (bulgări de lavă în arc, scântei ca dâre, cenușă în fum — fără bile rotunde), pâraiele mai late de pe pante, conul mai lat, craterul de aproape la fel de clar, și dacă rămâne fluid.
+- **De retestat pe telefon:** cheaguri mici de lavă (crustă întunecată, crăpături aprinse, dâre când sunt fierbinți), pâraie neregulate pe pante (mai înguste în jos, crustă pe margine), lacul din crater care fierbe și fântâna de lavă, fumul portocaliu lângă crater, și dacă rămâne fluid.
 
 Specificația de produs: [`docs/MVP_SPEC.md`](docs/MVP_SPEC.md).
