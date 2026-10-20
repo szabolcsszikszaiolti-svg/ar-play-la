@@ -127,13 +127,16 @@ const assetURL = (name) => new URL('./assets/' + name, import.meta.url).href;
 let H = 0.176;
 let poolSurface = 0.11;
 let paths = [];
-let flows = [];
 let pool = null;
 let rockMat = null;
-let flowMat = null;
 const uErupt = { value: 0.32 };
 const uTime = { value: 0 };
 const uHot = { value: 0.4 };
+const uFront = { value: 0 };
+const uFlowAmt = { value: 0 };
+const flowMapUniform = { value: new THREE.DataTexture(new Uint8Array(4), 1, 1) };
+flowMapUniform.value.colorSpace = THREE.NoColorSpace;
+flowMapUniform.value.needsUpdate = true;
 
 function softDisc() {
   const s = 64, data = new Uint8Array(s * s * 4);
@@ -166,75 +169,106 @@ function shadowTex() {
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
-function buildFlow(points) {
-  const n = points.length;
-  const cols = 8;
-  const pos = [], uv = [], idx = [];
-  const side = new THREE.Vector3(), tang = new THREE.Vector3();
-  for (let i = 0; i < n; i++) {
-    const t = i / (n - 1);
-    const p = points[i];
-    const nxt = points[Math.min(n - 1, i + 1)];
-    const prv = points[Math.max(0, i - 1)];
-    tang.subVectors(nxt, prv);
-    if (tang.lengthSq() < 1e-8) tang.set(0, -1, 0);
-    tang.normalize();
-    side.set(-tang.z, 0, tang.x);
-    if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
-    side.normalize();
-    const lobe = 0.78 + 0.28 * Math.sin(t * 7.5 + 0.5) + 0.16 * Math.sin(t * 16.0 + 1.3);
-    const open = Math.min(1, t / 0.12);
-    const w = (0.07 * (1 - t) + 0.032 * t) * Math.max(0.72, lobe) * (0.4 + 0.6 * open);
-    for (let c = 0; c <= cols; c++) {
-      const s = (c / cols) * 2 - 1;
-      const ax = Math.abs(s);
-      const jag = 0.74 + 0.26 * Math.sin(t * 13.0 + c * 1.9);
-      const x = p.x + side.x * w * s * jag;
-      const z = p.z + side.z * w * s * jag;
-      const levee = Math.exp(-((ax - 0.62) * (ax - 0.62)) / 0.05) * 0.0055 * (1 - t * 0.35);
-      const crown = (1 - ax * ax) * 0.0036;
-      pos.push(x, crown + levee + 0.018, z);
-      uv.push(s * 0.5 + 0.5, t * 1.7);
+// Top-down mask of the flank flows. The rock shader paints this onto the mesh,
+// so the lava is the surface itself and cannot float or bridge the crater.
+function buildFlowMask(allPaths) {
+  const N = 512;
+  const SPAN = 0.44;
+  const HALF = SPAN * 0.5;
+  const data = new Uint8Array(N * N * 4);
+  const cols = 12;
+  const rowN = cols + 1;
+  function toPx(x, z) {
+    return [(x + HALF) / SPAN * (N - 1), (z + HALF) / SPAN * (N - 1)];
+  }
+  function paint(points) {
+    const pts = [];
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      if (Math.hypot(p.x, p.z) < 0.047) continue;
+      pts.push(p);
+    }
+    const n = pts.length;
+    if (n < 2) return;
+    const xs = new Float32Array(n * rowN);
+    const zs = new Float32Array(n * rowN);
+    const along = new Float32Array(n * rowN);
+    const across = new Float32Array(n * rowN);
+    const side = new THREE.Vector3();
+    const tang = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      const p = pts[i];
+      const nxt = pts[Math.min(n - 1, i + 1)];
+      const prv = pts[Math.max(0, i - 1)];
+      tang.subVectors(nxt, prv);
+      if (tang.lengthSq() < 1e-8) tang.set(0, -1, 0);
+      tang.normalize();
+      side.set(-tang.z, 0, tang.x);
+      if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+      side.normalize();
+      const lobe = 0.78 + 0.28 * Math.sin(t * 7.5 + 0.5) + 0.16 * Math.sin(t * 16.0 + 1.3);
+      const open = Math.min(1, t / 0.1);
+      const w = (0.055 * (1 - t) + 0.026 * t) * Math.max(0.7, lobe) * (0.45 + 0.55 * open);
+      for (let c = 0; c <= cols; c++) {
+        const s = (c / cols) * 2 - 1;
+        const jag = 0.8 + 0.2 * Math.sin(t * 13.0 + c * 1.9);
+        const k = i * rowN + c;
+        xs[k] = p.x + side.x * w * s * jag;
+        zs[k] = p.z + side.z * w * s * jag;
+        along[k] = t;
+        across[k] = Math.abs(s);
+      }
+    }
+    function rast(i0, i1, i2) {
+      const x0 = xs[i0], z0 = zs[i0], x1 = xs[i1], z1 = zs[i1], x2 = xs[i2], z2 = zs[i2];
+      const p0 = toPx(x0, z0);
+      const p1 = toPx(x1, z1);
+      const p2 = toPx(x2, z2);
+      const minX = Math.max(0, Math.floor(Math.min(p0[0], p1[0], p2[0])));
+      const maxX = Math.min(N - 1, Math.ceil(Math.max(p0[0], p1[0], p2[0])));
+      const minY = Math.max(0, Math.floor(Math.min(p0[1], p1[1], p2[1])));
+      const maxY = Math.min(N - 1, Math.ceil(Math.max(p0[1], p1[1], p2[1])));
+      const area = (p1[1] - p2[1]) * (p0[0] - p2[0]) + (p2[0] - p1[0]) * (p0[1] - p2[1]);
+      if (Math.abs(area) < 0.5) return;
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          const px = x + 0.5;
+          const py = y + 0.5;
+          const w0 = ((p1[1] - p2[1]) * (px - p2[0]) + (p2[0] - p1[0]) * (py - p2[1])) / area;
+          const w1 = ((p2[1] - p0[1]) * (px - p2[0]) + (p0[0] - p2[0]) * (py - p2[1])) / area;
+          const w2 = 1 - w0 - w1;
+          if (w0 < -0.001 || w1 < -0.001 || w2 < -0.001) continue;
+          const a = along[i0] * w0 + along[i1] * w1 + along[i2] * w2;
+          const e = across[i0] * w0 + across[i1] * w1 + across[i2] * w2;
+          const idx = (y * N + x) * 4;
+          if (data[idx + 2] > 0 && data[idx + 1] <= e * 255) continue;
+          data[idx] = Math.max(0, Math.min(255, Math.round(a * 255)));
+          data[idx + 1] = Math.max(0, Math.min(255, Math.round(e * 255)));
+          data[idx + 2] = 255;
+          data[idx + 3] = 255;
+        }
+      }
+    }
+    for (let i = 0; i < n - 1; i++) {
+      for (let c = 0; c < cols; c++) {
+        const a = i * rowN + c;
+        const d = a + rowN;
+        rast(a, d, a + 1);
+        rast(a + 1, d, d + 1);
+      }
     }
   }
-  for (let i = 0; i < n - 1; i++) {
-    for (let c = 0; c < cols; c++) {
-      const a = i * (cols + 1) + c;
-      const d = a + (cols + 1);
-      idx.push(a, d, a + 1, a + 1, d, d + 1);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  geo.setDrawRange(0, 0);
-  return geo;
-}
-function drapeFlow(geo, rock) {
-  const pos = geo.attributes.position;
-  const raycaster = new THREE.Raycaster();
-  const origin = new THREE.Vector3();
-  const down = new THREE.Vector3(0, -1, 0);
-  rock.updateMatrixWorld(true);
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const thick = pos.getY(i);
-    const z = pos.getZ(i);
-    origin.set(x, 0.45, z);
-    raycaster.set(origin, down);
-    const hits = raycaster.intersectObject(rock, false);
-    if (hits.length) {
-      const n = hits[0].face.normal;
-      const p = hits[0].point;
-      pos.setXYZ(i, p.x + n.x * thick, p.y + n.y * thick, p.z + n.z * thick);
-    } else {
-      pos.setXYZ(i, x, flankY(x, z) + thick, z);
-    }
-  }
-  pos.needsUpdate = true;
-  geo.computeVertexNormals();
+  for (const path of allPaths) paint(path);
+  const tex = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  tex.flipY = false;
+  tex.needsUpdate = true;
+  return tex;
 }
 function makeLavaMaterial(edgeFade, soft) {
   return new THREE.ShaderMaterial({
@@ -387,16 +421,32 @@ async function loadVolcano() {
   rockMat.onBeforeCompile = (shader) => {
     shader.uniforms.uErupt = uErupt;
     shader.uniforms.uRockScale = { value: 4.2 };
+    shader.uniforms.uFlowMap = flowMapUniform;
+    shader.uniforms.uFront = uFront;
+    shader.uniforms.uFlowAmt = uFlowAmt;
+    shader.uniforms.uTime = uTime;
+    shader.uniforms.uHot = uHot;
+    shader.uniforms.uLavaColor = { value: lavaColor };
+    shader.uniforms.uLavaEmit = { value: lavaEmit };
     shader.vertexShader = shader.vertexShader
-      .replace('#include <uv_pars_vertex>', '#include <uv_pars_vertex>\nattribute vec2 uv1;\nvarying float vHeat;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;')
+      .replace('#include <uv_pars_vertex>', '#include <uv_pars_vertex>\nattribute vec2 uv1;\nvarying float vHeat;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\nvarying vec3 vLocal;\nvarying vec3 vLocalN;')
       .replace('#include <uv_vertex>', '#include <uv_vertex>\nvHeat = uv1.x;')
-      .replace('#include <normal_vertex>', '#include <normal_vertex>\n\tvWNrm = normalize(mat3(modelMatrix) * objectNormal);\n\tvWPos = (modelMatrix * vec4(position, 1.0)).xyz;');
+      .replace('#include <normal_vertex>', '#include <normal_vertex>\n\tvWNrm = normalize(mat3(modelMatrix) * objectNormal);\n\tvWPos = (modelMatrix * vec4(position, 1.0)).xyz;\n\tvLocal = position;\n\tvLocalN = normalize(objectNormal);');
     shader.fragmentShader = `
 uniform float uErupt;
 uniform float uRockScale;
+uniform sampler2D uFlowMap;
+uniform sampler2D uLavaColor;
+uniform sampler2D uLavaEmit;
+uniform float uFront;
+uniform float uFlowAmt;
+uniform float uTime;
+uniform float uHot;
 varying float vHeat;
 varying vec3 vWPos;
 varying vec3 vWNrm;
+varying vec3 vLocal;
+varying vec3 vLocalN;
 vec3 rockBlend(vec3 n) {
   vec3 b = pow(abs(n), vec3(4.0));
   return b / (b.x + b.y + b.z + 1e-4);
@@ -435,9 +485,40 @@ vec3 rockBlend(vec3 n) {
       `)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         float heat = smoothstep(0.7, 1.0, clamp(vHeat, 0.0, 1.0));
-        totalEmissiveRadiance += vec3(0.45, 0.12, 0.015) * heat * uErupt;`);
+        totalEmissiveRadiance += vec3(0.45, 0.12, 0.015) * heat * uErupt;`)
+      .replace('#include <colorspace_fragment>', `#include <colorspace_fragment>
+        vec2 flowUv = vLocal.xz * ${(1 / 0.44).toFixed(6)} + 0.5;
+        vec4 fm = texture2D(uFlowMap, flowUv);
+        float along = fm.r;
+        float across = fm.g;
+        float cover = fm.b;
+        vec3 nLoc = normalize(vLocalN);
+        float rad = length(vLocal.xz);
+        // Coat the outer rock, including steep gully walls. Skip the inner bowl and overhangs.
+        float facing = dot(nLoc.xz, normalize(vLocal.xz + vec2(1e-4)));
+        float bowl = step(0.075, vLocal.y) * step(rad, 0.072) * step(facing, 0.2);
+        float flank = step(0.047, rad) * (1.0 - bowl) * step(-0.2, nLoc.y);
+        float revealed = 1.0 - smoothstep(uFront - 0.01, uFront + 0.07, along);
+        float mask = smoothstep(0.42, 0.72, cover) * (1.0 - smoothstep(0.86, 1.02, across)) * smoothstep(0.15, 0.5, revealed);
+        if (mask > 0.04 && flank > 0.5 && uFlowAmt > 0.02) {
+          vec2 uv = vec2(fract(across * 1.4), fract(along * 1.5 - uTime * 0.04));
+          uv.x = fract(uv.x + sin(along * 9.0 + uTime * 0.064) * 0.03);
+          vec3 crust = texture2D(uLavaColor, uv).rgb;
+          vec3 glow = texture2D(uLavaEmit, vec2(uv.x * 1.2, fract(uv.y + uTime * 0.016))).rgb;
+          float cracks = clamp(glow.r * 1.35 + crust.r * 0.35, 0.0, 1.4);
+          float core = smoothstep(0.72, 0.05, across);
+          vec3 crustCol = vec3(0.22, 0.055, 0.012);
+          vec3 magma = vec3(1.0, 0.36, 0.04);
+          vec3 whiteHot = vec3(1.0, 0.82, 0.35);
+          vec3 col = mix(crustCol, magma, 0.72 + 0.28 * smoothstep(0.08, 0.5, cracks));
+          col = mix(col, whiteHot, smoothstep(0.45, 0.92, cracks) * (0.35 + uHot * 0.3) * core);
+          col = mix(col, crustCol, smoothstep(0.78, 1.0, across) * 0.55);
+          float lambert = 0.62 + 0.38 * clamp(dot(nLoc, normalize(vec3(0.35, 0.86, 0.28))), 0.0, 1.0);
+          col *= lambert * (0.92 + cracks * 0.35) * mix(0.7, 1.0, uFlowAmt);
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, col, mask);
+        }`);
   };
-  rockMat.customProgramCacheKey = () => 'volcano-triplanar-v1';
+  rockMat.customProgramCacheKey = () => 'volcano-triplanar-v6-flow';
 
   // Meshopt quantization stores the sculpt in a normalized box and puts the
   // real tabletop size on the node. The geometry alone is several times too big.
@@ -458,22 +539,10 @@ vec3 rockBlend(vec3 n) {
   const rock = new THREE.Mesh(rockGeo, rockMat);
   shake.add(rock);
 
-  flowMat = makeLavaMaterial(1, true);
-  flowMat.transparent = false;
-  flowMat.uniforms.uColor.value = lavaColor;
-  flowMat.uniforms.uEmit.value = lavaEmit;
   const poolMat = makeLavaMaterial(0, false);
   poolMat.uniforms.uColor.value = lavaColor;
   poolMat.uniforms.uEmit.value = lavaEmit;
-  flows = paths.map((pts) => {
-    const mesh = new THREE.Mesh(buildFlow(pts), flowMat);
-    drapeFlow(mesh.geometry, rock);
-    mesh.frustumCulled = false;
-    mesh.visible = false;
-    mesh.renderOrder = 2;
-    shake.add(mesh);
-    return mesh;
-  });
+  flowMapUniform.value = buildFlowMask(paths);
   pool = new THREE.Mesh(new THREE.CircleGeometry(meta.poolR * 1.65, 56), poolMat);
   bombMat.uniforms.uColor.value = lavaColor;
   bombMat.uniforms.uEmit.value = lavaEmit;
@@ -567,10 +636,12 @@ const bombMat = new THREE.ShaderMaterial({
       vec3 crust = texture2D(uColor, uv).rgb;
       vec3 glow = texture2D(uEmit, fract(uv * 1.35 + 0.2)).rgb;
       float h = clamp(vH, 0.0, 1.0);
-      float crack = smoothstep(0.05, 0.42, glow.r * 1.25 + crust.r * 0.2);
-      vec3 col = crust * vec3(0.14, 0.045, 0.025);
-      col = mix(col, vec3(1.0, 0.32, 0.03), crack * (0.45 + 0.55 * h));
-      col += vec3(1.0, 0.75, 0.28) * pow(crack, 1.25) * h;
+      float crack = smoothstep(0.42, 0.82, glow.r);
+      vec3 dark = vec3(0.045, 0.042, 0.04);
+      vec3 hotCrust = vec3(0.11, 0.035, 0.015);
+      vec3 col = mix(dark, hotCrust, h);
+      col = mix(col, vec3(1.0, 0.28, 0.03), crack * h);
+      col += vec3(1.0, 0.45, 0.08) * pow(crack, 2.0) * h;
       float shade = 0.62 + 0.38 * clamp(dot(normalize(vN), vec3(0.3, 0.84, 0.28)), 0.0, 1.0);
       float fade = smoothstep(0.0, 0.22, h);
       if (fade < 0.04) discard;
@@ -807,8 +878,8 @@ function stopErupt() {
   clearTimeout(cardTimer);
   card.hidden = true;
   killAllParticles();
-  for (const mesh of flows) { mesh.visible = false; mesh.geometry.setDrawRange(0, 0); }
-  if (flowMat) flowMat.uniforms.uFront.value = 0;
+  uFront.value = 0;
+  uFlowAmt.value = 0;
   craterLight.intensity = 0.012;
   craterGlow.scale.set(0.028, 0.02, 1);
   outerGlow.scale.set(0.05, 0.036, 1);
@@ -838,13 +909,8 @@ function updateEruption(dt, time) {
   uTime.value = time;
   uHot.value = 0.35 + glow * 1.05;
   uErupt.value = 0.22 + glow * 1.65;
-  if (flowMat) flowMat.uniforms.uFront.value = reveal;
-  for (const mesh of flows) {
-    const count = mesh.geometry.index.count;
-    const show = reveal > 0.015 && glow > 0.02;
-    mesh.geometry.setDrawRange(0, show ? count : 0);
-    mesh.visible = show;
-  }
+  uFront.value = reveal;
+  uFlowAmt.value = reveal > 0.015 && glow > 0.02 ? glow : 0;
   const pulse = 0.85 + (hot ? 0.15 * Math.sin(time * 28) : 0);
   const lit = Math.max(fade, glow * 0.85);
   craterLight.intensity = 0.012 + lit * 0.04 * pulse;
@@ -903,7 +969,7 @@ function updateEruption(dt, time) {
         if (q.v.lengthSq() < 0.0004) q.v.set(0, 0, 0);
         q.spin *= Math.max(0, 1 - dt * 1.5);
       }
-      q.heat -= dt * 0.055;
+      q.heat -= dt * 0.08;
     } else {
       q.heat -= dt * 0.06;
     }
@@ -1554,6 +1620,18 @@ function focusRim() {
   puffs.visible = true;
   if (controls) controls.enabled = false;
 }
+function focusSide() {
+  camera.near = 0.004;
+  camera.fov = 40;
+  camera.updateProjectionMatrix();
+  camera.position.set(0.34, H + 0.02, 0.04);
+  camera.lookAt(0, H * 0.45, 0);
+  bombsMesh.visible = true;
+  sparksMesh.visible = true;
+  trailsMesh.visible = true;
+  puffs.visible = true;
+  if (controls) controls.enabled = false;
+}
 async function init() {
   try {
     await loadVolcano();
@@ -1575,7 +1653,7 @@ async function init() {
     setHint('AR are nevoie de HTTPS. Deocamdată, joacă-te în modul 3D 👇');
   }
   renderer.setAnimationLoop(loop);
-  window.__arPlayLab = { arOK, erupt, particles: aliveCount, focusCrater, focusRim };
+  window.__arPlayLab = { arOK, erupt, particles: aliveCount, focusCrater, focusRim, focusSide };
 }
 init();
 </script>

@@ -54,6 +54,6 @@ Safari pe iOS **nu** suportă WebXR AR, deci pe iPhone se vede doar modul 3D (ro
 ## Verificat pe box
 - Sintaxa JS (`node --check`)
 - Modul fallback 3D în Chrome headless, servit din subcalea `/ar-play-la/`: fără erori în consolă, bara de încărcare dispare, „Erupe!” pornește lavă / fum / scântei
-- **De retestat pe telefon:** cheagurile cad pe pante sau pe masă (nu înapoi în crater), se răcesc și dispar după câteva secunde; pâraiele înaintează încet (~15 s) și sunt mai late; craterul și fumul rămân la fel.
+- **De retestat pe telefon:** cheagurile cad pe pante sau pe masă și se închid la culoare; pâraiele stau pe stâncă, în chei, și înaintează încet (~14 s).
 
 Specificația de produs: [`docs/MVP_SPEC.md`](docs/MVP_SPEC.md).
