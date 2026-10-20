@@ -182,17 +182,18 @@ function buildFlow(points) {
     side.set(-tang.z, 0, tang.x);
     if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
     side.normalize();
-    const lobe = 0.62 + 0.38 * Math.sin(t * 7.5 + 0.5) + 0.22 * Math.sin(t * 16.0 + 1.3);
-    const w = (0.028 * (1 - t) + 0.009 * t) * Math.max(0.4, lobe);
+    const lobe = 0.78 + 0.28 * Math.sin(t * 7.5 + 0.5) + 0.16 * Math.sin(t * 16.0 + 1.3);
+    const open = Math.min(1, t / 0.12);
+    const w = (0.07 * (1 - t) + 0.032 * t) * Math.max(0.72, lobe) * (0.4 + 0.6 * open);
     for (let c = 0; c <= cols; c++) {
       const s = (c / cols) * 2 - 1;
       const ax = Math.abs(s);
-      const jag = 0.7 + 0.3 * Math.sin(t * 13.0 + c * 1.9);
+      const jag = 0.74 + 0.26 * Math.sin(t * 13.0 + c * 1.9);
       const x = p.x + side.x * w * s * jag;
       const z = p.z + side.z * w * s * jag;
-      const levee = Math.exp(-((ax - 0.62) * (ax - 0.62)) / 0.045) * 0.0016 * (1 - t * 0.4);
-      const crown = (1 - ax * ax) * 0.001;
-      pos.push(x, crown + levee + 0.0007, z);
+      const levee = Math.exp(-((ax - 0.62) * (ax - 0.62)) / 0.05) * 0.0055 * (1 - t * 0.35);
+      const crown = (1 - ax * ax) * 0.0036;
+      pos.push(x, crown + levee + 0.018, z);
       uv.push(s * 0.5 + 0.5, t * 1.7);
     }
   }
@@ -211,100 +212,25 @@ function buildFlow(points) {
   geo.setDrawRange(0, 0);
   return geo;
 }
-function makeHeightField(rock) {
-  const N = 140;
-  const R = 0.2;
-  const grid = new Float32Array(N * N);
-  grid.fill(-1);
-  const pos = rock.geometry.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    if (x < -R || x > R || z < -R || z > R) continue;
-    const ix = Math.max(0, Math.min(N - 1, Math.round(((x + R) / (2 * R)) * (N - 1))));
-    const iz = Math.max(0, Math.min(N - 1, Math.round(((z + R) / (2 * R)) * (N - 1))));
-    const k = iz * N + ix;
-    if (y > grid[k]) grid[k] = y;
-  }
-  for (let pass = 0; pass < 3; pass++) {
-    for (let j = 0; j < N; j++) {
-      for (let i = 0; i < N; i++) {
-        const k = j * N + i;
-        if (grid[k] >= 0) continue;
-        let s = 0, n = 0;
-        for (let dj = -1; dj <= 1; dj++) {
-          for (let di = -1; di <= 1; di++) {
-            const ii = i + di, jj = j + dj;
-            if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue;
-            const h = grid[jj * N + ii];
-            if (h >= 0) { s += h; n++; }
-          }
-        }
-        if (n) grid[k] = s / n;
-      }
-    }
-  }
-  for (let j = 0; j < N; j++) {
-    for (let i = 0; i < N; i++) {
-      if (grid[j * N + i] >= 0) continue;
-      const x = -R + (2 * R) * (i / (N - 1));
-      const z = -R + (2 * R) * (j / (N - 1));
-      grid[j * N + i] = flankY(x, z);
-    }
-  }
-  return { N, R, grid };
-}
-function sampleH(field, x, z) {
-  const { N, R, grid } = field;
-  const u = Math.max(0, Math.min(N - 1.001, ((x + R) / (2 * R)) * (N - 1)));
-  const v = Math.max(0, Math.min(N - 1.001, ((z + R) / (2 * R)) * (N - 1)));
-  const i = Math.floor(u);
-  const j = Math.floor(v);
-  const tx = u - i;
-  const tz = v - j;
-  const h00 = grid[j * N + i];
-  const h10 = grid[j * N + i + 1];
-  const h01 = grid[(j + 1) * N + i];
-  const h11 = grid[(j + 1) * N + i + 1];
-  return h00 * (1 - tx) * (1 - tz) + h10 * tx * (1 - tz) + h01 * (1 - tx) * tz + h11 * tx * tz;
-}
 function drapeFlow(geo, rock) {
-  const field = rock.userData.heightField || (rock.userData.heightField = makeHeightField(rock));
-  const cols = 8;
-  const rowN = cols + 1;
   const pos = geo.attributes.position;
-  const rows = pos.count / rowN;
-  const nrm = new THREE.Vector3();
-  const centerCol = cols >> 1;
-  for (let r = 0; r < rows; r++) {
-    const cIdx = r * rowN + centerCol;
-    const cx = pos.getX(cIdx);
-    const cz = pos.getZ(cIdx);
-    const cH = sampleH(field, cx, cz);
-    for (let c = 0; c < rowN; c++) {
-      const i = r * rowN + c;
-      const thick = pos.getY(i);
-      let x = cx;
-      let z = cz;
-      let h = cH;
-      if (c !== centerCol) {
-        const sx = pos.getX(i);
-        const sz = pos.getZ(i);
-        for (let s = 1; s <= 7; s++) {
-          const u = s / 7;
-          const px = cx + (sx - cx) * u;
-          const pz = cz + (sz - cz) * u;
-          const ph = sampleH(field, px, pz);
-          if (ph > cH + 0.004 || ph < cH - 0.008) break;
-          x = px; z = pz; h = ph;
-        }
-      }
-      const e = 0.0035;
-      nrm.set(
-        sampleH(field, x - e, z) - sampleH(field, x + e, z),
-        2 * e,
-        sampleH(field, x, z - e) - sampleH(field, x, z + e),
-      ).normalize();
-      pos.setXYZ(i, x + nrm.x * thick, h + nrm.y * thick, z + nrm.z * thick);
+  const raycaster = new THREE.Raycaster();
+  const origin = new THREE.Vector3();
+  const down = new THREE.Vector3(0, -1, 0);
+  rock.updateMatrixWorld(true);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const thick = pos.getY(i);
+    const z = pos.getZ(i);
+    origin.set(x, 0.45, z);
+    raycaster.set(origin, down);
+    const hits = raycaster.intersectObject(rock, false);
+    if (hits.length) {
+      const n = hits[0].face.normal;
+      const p = hits[0].point;
+      pos.setXYZ(i, p.x + n.x * thick, p.y + n.y * thick, p.z + n.z * thick);
+    } else {
+      pos.setXYZ(i, x, flankY(x, z) + thick, z);
     }
   }
   pos.needsUpdate = true;
@@ -319,10 +245,12 @@ function makeLavaMaterial(edgeFade, soft) {
       uHot,
       uBoil: { value: 0 },
       uEdge: { value: edgeFade },
+      uScroll: { value: edgeFade > 0.5 ? 0.04 : 0.3 },
+      uFront: { value: edgeFade > 0.5 ? 0 : 1 },
     },
     toneMapped: false,
     transparent: !!soft,
-    depthWrite: !soft,
+    depthWrite: true,
     side: THREE.DoubleSide,
     polygonOffset: true,
     polygonOffsetFactor: -2,
@@ -346,31 +274,35 @@ function makeLavaMaterial(edgeFade, soft) {
       uniform float uTime;
       uniform float uHot;
       uniform float uEdge;
+      uniform float uScroll;
+      uniform float uFront;
       varying vec2 vUv;
       void main() {
-        vec2 uv = vec2(fract(vUv.x * 1.4), fract(vUv.y * 1.5 - uTime * (0.15 + uHot * 0.4)));
-        uv.x = fract(uv.x + sin(vUv.y * 9.0 + uTime * 1.5) * 0.03);
+        vec2 uv = vec2(fract(vUv.x * 1.4), fract(vUv.y * 1.5 - uTime * uScroll));
+        uv.x = fract(uv.x + sin(vUv.y * 9.0 + uTime * uScroll * 1.6) * 0.03);
         vec3 crust = texture2D(uColor, uv).rgb;
-        vec3 glow = texture2D(uEmit, vec2(uv.x * 1.2, fract(uv.y + uTime * 0.08))).rgb;
+        vec3 glow = texture2D(uEmit, vec2(uv.x * 1.2, fract(uv.y + uTime * uScroll * 0.4))).rgb;
         float cracks = clamp(glow.r * 1.35 + crust.r * 0.35, 0.0, 1.4);
         float across = abs(vUv.x - 0.5) * 2.0;
-        float lobe = 0.46 + 0.26 * sin(vUv.y * 6.2) + 0.16 * sin(vUv.y * 15.0 + 1.1) + 0.1 * sin(vUv.y * 31.0);
-        float edge = across / max(0.2, lobe);
-        float side = smoothstep(1.2, 0.18, edge);
+        float lobe = 0.9 + 0.14 * sin(vUv.y * 6.2) + 0.08 * sin(vUv.y * 15.0 + 1.1) + 0.05 * sin(vUv.y * 31.0);
+        float edge = across / max(0.8, lobe);
+        float side = smoothstep(1.25, 0.5, edge);
         float head = smoothstep(0.0, 0.16, vUv.y);
         float toe = 1.0 - smoothstep(1.35, 1.7, vUv.y);
         float core = smoothstep(0.72, 0.05, edge);
         cracks *= mix(1.0, 0.3 + 0.7 * core, uEdge);
-        vec3 crustCol = crust * vec3(0.2, 0.06, 0.03);
-        vec3 magma = vec3(1.0, 0.32, 0.03);
-        vec3 whiteHot = vec3(1.0, 0.8, 0.34);
-        vec3 col = mix(crustCol, magma, 0.4 + 0.6 * smoothstep(0.1, 0.5, cracks));
-        col = mix(col, whiteHot, smoothstep(0.45, 0.9, cracks) * (0.35 + uHot * 0.55) * mix(1.0, core, uEdge));
-        float crustBand = uEdge * smoothstep(0.18, 0.55, edge) * (1.0 - smoothstep(0.55, 1.05, edge));
+        vec3 crustCol = crust * vec3(0.28, 0.08, 0.03);
+        vec3 magma = vec3(1.0, 0.36, 0.04);
+        vec3 whiteHot = vec3(1.0, 0.82, 0.35);
+        vec3 col = mix(crustCol, magma, 0.78 + 0.22 * smoothstep(0.08, 0.5, cracks));
+        col = mix(col, whiteHot, smoothstep(0.4, 0.9, cracks) * (0.4 + uHot * 0.35) * mix(0.7, core, uEdge));
+        float crustBand = uEdge * smoothstep(0.62, 0.92, edge);
         col = mix(col, crustCol, crustBand);
-        float alpha = mix(1.0, side * head * toe, uEdge);
-        if (alpha < 0.05) discard;
-        gl_FragColor = vec4(col * (0.85 + cracks * (0.6 + uHot * 0.4)), alpha);
+        float along = vUv.y / 1.7;
+        float frontFade = smoothstep(uFront, uFront - 0.08, along);
+        float alpha = mix(1.0, side * head * toe * frontFade, uEdge);
+        if (alpha < 0.45) discard;
+        gl_FragColor = vec4(col * (0.9 + cracks * (0.45 + uHot * 0.25)), 1.0);
       }
     `,
   });
@@ -527,6 +459,7 @@ vec3 rockBlend(vec3 n) {
   shake.add(rock);
 
   flowMat = makeLavaMaterial(1, true);
+  flowMat.transparent = false;
   flowMat.uniforms.uColor.value = lavaColor;
   flowMat.uniforms.uEmit.value = lavaEmit;
   const poolMat = makeLavaMaterial(0, false);
@@ -607,6 +540,7 @@ const bombHeat = new THREE.InstancedBufferAttribute(new Float32Array(BOMB_N), 1)
 bombGeo.setAttribute('aHeat', bombHeat);
 const bombMat = new THREE.ShaderMaterial({
   toneMapped: false,
+  depthWrite: true,
   uniforms: { uColor: { value: null }, uEmit: { value: null }, uTime },
   vertexShader: `
     attribute float aHeat;
@@ -638,6 +572,12 @@ const bombMat = new THREE.ShaderMaterial({
       col = mix(col, vec3(1.0, 0.32, 0.03), crack * (0.45 + 0.55 * h));
       col += vec3(1.0, 0.75, 0.28) * pow(crack, 1.25) * h;
       float shade = 0.62 + 0.38 * clamp(dot(normalize(vN), vec3(0.3, 0.84, 0.28)), 0.0, 1.0);
+      float fade = smoothstep(0.0, 0.22, h);
+      if (fade < 0.04) discard;
+      if (fade < 0.97) {
+        float dither = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+        if (dither > fade) discard;
+      }
       gl_FragColor = vec4(col * shade, 1.0);
     }
   `,
@@ -648,7 +588,7 @@ bombsMesh.frustumCulled = false;
 shake.add(bombsMesh);
 const bombs = Array.from({ length: BOMB_N }, () => ({
   alive: false, p: new THREE.Vector3(), v: new THREE.Vector3(),
-  life: 0, max: 1.2, s: 0.01, sx: 1, sz: 1, heat: 1, roll: 0, spin: 1,
+  life: 0, max: 6, s: 0.01, sx: 1, sz: 1, heat: 1, roll: 0, spin: 1, bounces: 0,
 }));
 const streakGeo = makeStreakGeo();
 const sparkHeat = new THREE.InstancedBufferAttribute(new Float32Array(SPARK_N), 1);
@@ -805,15 +745,17 @@ function spawnBomb() {
     q.spin = (Math.random() - 0.5) * 2.2;
     q.sx = 0.75 + Math.random() * 0.5;
     q.sz = 0.7 + Math.random() * 0.55;
-    const jet = Math.random() < 0.72;
+    q.bounces = 0;
     const ang = Math.random() * Math.PI * 2;
-    const spread = jet ? 0.004 + Math.random() * 0.02 : 0.06 + Math.random() * 0.1;
-    const r = jet ? Math.random() * 0.005 : 0.004 + Math.random() * 0.008;
-    q.p.set(Math.cos(ang) * r, poolSurface + 0.004, Math.sin(ang) * r);
-    const up = jet ? 0.85 + Math.random() * 0.45 : 0.28 + Math.random() * 0.35;
-    q.v.set(Math.cos(ang) * spread, up, Math.sin(ang) * spread);
-    q.max = 0.7 + Math.random() * 0.55;
-    q.s = jet ? 0.0048 + Math.random() * 0.0028 : 0.0032 + Math.random() * 0.0018;
+    const kind = Math.random();
+    // Every clot clears the rim. High arcs still rise, but lateral speed carries them onto the flanks or the table.
+    const out = kind < 0.35 ? 0.1 + Math.random() * 0.08 : kind < 0.8 ? 0.16 + Math.random() * 0.1 : 0.12 + Math.random() * 0.08;
+    const up = kind < 0.35 ? 0.55 + Math.random() * 0.35 : kind < 0.8 ? 0.42 + Math.random() * 0.32 : 0.95 + Math.random() * 0.3;
+    const r = 0.004 + Math.random() * 0.008;
+    q.p.set(Math.cos(ang) * r, poolSurface + 0.006, Math.sin(ang) * r);
+    q.v.set(Math.cos(ang) * out, up, Math.sin(ang) * out);
+    q.max = 6.5;
+    q.s = 0.0046 + Math.random() * 0.0032;
     return;
   }
 }
@@ -821,11 +763,10 @@ function spawnSpark() {
   for (const q of sparks) {
     if (q.alive) continue;
     q.alive = true; q.life = 0; q.heat = 1;
-    const jet = Math.random() < 0.6;
     const ang = Math.random() * Math.PI * 2;
-    const out = jet ? 0.02 + Math.random() * 0.08 : 0.08 + Math.random() * 0.16;
-    q.p.set(Math.cos(ang) * 0.004, poolSurface + 0.004, Math.sin(ang) * 0.004);
-    q.v.set(Math.cos(ang) * out, (jet ? 0.85 : 0.45) + Math.random() * 0.5, Math.sin(ang) * out);
+    const out = 0.1 + Math.random() * 0.18;
+    q.p.set(Math.cos(ang) * 0.005, poolSurface + 0.006, Math.sin(ang) * 0.005);
+    q.v.set(Math.cos(ang) * out, 0.55 + Math.random() * 0.7, Math.sin(ang) * out);
     q.max = 0.28 + Math.random() * 0.22;
     return;
   }
@@ -859,6 +800,7 @@ function placeStreak(mesh, heatAttr, i, pos, dir, length, width, heat) {
 
 let erupting = false, eruptAge = 0, spawnAcc = 0, sparkAcc = 0, puffAcc = 0, cardTimer = 0;
 const ERUPT_LEN = 3.3;
+const FLOW_SECS = 14;
 
 function stopErupt() {
   erupting = false; eruptAge = 0; spawnAcc = 0; sparkAcc = 0; puffAcc = 0;
@@ -866,6 +808,7 @@ function stopErupt() {
   card.hidden = true;
   killAllParticles();
   for (const mesh of flows) { mesh.visible = false; mesh.geometry.setDrawRange(0, 0); }
+  if (flowMat) flowMat.uniforms.uFront.value = 0;
   craterLight.intensity = 0.012;
   craterGlow.scale.set(0.028, 0.02, 1);
   outerGlow.scale.set(0.05, 0.036, 1);
@@ -882,7 +825,7 @@ function erupt() {
   for (let i = 0; i < 16; i++) spawnPuff(i > 11);
   card.hidden = true;
   clearTimeout(cardTimer);
-  cardTimer = setTimeout(() => { card.hidden = false; }, 3600);
+  cardTimer = setTimeout(() => { card.hidden = false; }, 15000);
   if (navigator.vibrate && navigator.userActivation && navigator.userActivation.isActive) navigator.vibrate([35, 40, 55]);
   startRumble();
 }
@@ -890,22 +833,26 @@ function updateEruption(dt, time) {
   const hot = erupting && eruptAge < ERUPT_LEN;
   if (erupting) eruptAge += dt;
   const fade = !erupting ? 0 : eruptAge < ERUPT_LEN ? 1 : Math.max(0, 1 - (eruptAge - ERUPT_LEN) / 2.4);
-  const reveal = erupting ? Math.min(1, eruptAge / 1.25) : 0;
+  const glow = !erupting ? 0 : eruptAge < FLOW_SECS ? 1 : Math.max(0, 1 - (eruptAge - FLOW_SECS) / 2.2);
+  const reveal = erupting ? Math.min(1, eruptAge / FLOW_SECS) : 0;
   uTime.value = time;
-  uHot.value = 0.35 + fade * 1.05;
-  uErupt.value = 0.22 + fade * 1.65;
+  uHot.value = 0.35 + glow * 1.05;
+  uErupt.value = 0.22 + glow * 1.65;
+  if (flowMat) flowMat.uniforms.uFront.value = reveal;
   for (const mesh of flows) {
     const count = mesh.geometry.index.count;
-    mesh.geometry.setDrawRange(0, Math.floor(reveal * count));
-    mesh.visible = reveal > 0.02 && fade > 0.02;
+    const show = reveal > 0.015 && glow > 0.02;
+    mesh.geometry.setDrawRange(0, show ? count : 0);
+    mesh.visible = show;
   }
   const pulse = 0.85 + (hot ? 0.15 * Math.sin(time * 28) : 0);
-  craterLight.intensity = 0.012 + fade * 0.04 * pulse;
-  const gs = 0.026 + fade * 0.018;
+  const lit = Math.max(fade, glow * 0.85);
+  craterLight.intensity = 0.012 + lit * 0.04 * pulse;
+  const gs = 0.026 + lit * 0.018;
   craterGlow.scale.set(gs, gs * 0.7, 1);
   outerGlow.scale.set(gs * 1.7, gs * 1.15, 1);
-  craterGlow.material.opacity = 0.4 + fade * 0.45;
-  if (pool) pool.material.uniforms.uBoil.value = 0.0012 + fade * 0.0036;
+  craterGlow.material.opacity = 0.4 + lit * 0.45;
+  if (pool) pool.material.uniforms.uBoil.value = 0.0012 + Math.max(fade, glow * 0.65) * 0.0036;
 
   if (hot) {
     spawnAcc += dt * 18; sparkAcc += dt * 20; puffAcc += dt * 28;
@@ -930,16 +877,37 @@ function updateEruption(dt, time) {
     q.v.y -= 1.7 * dt;
     q.p.addScaledVector(q.v, dt);
     q.roll += dt * q.spin;
-    const gy = flankY(q.p.x, q.p.z);
-    if (q.p.y <= gy + 0.003 && q.v.y < 0) {
-      q.p.y = gy + 0.003;
-      q.v.multiplyScalar(0.25);
-      q.v.y = 0;
-      q.heat -= dt * 0.85;
+    const rad = Math.hypot(q.p.x, q.p.z);
+    const overVent = rad < 0.04 && q.p.y > poolSurface;
+    const gy = rad > 0.17 ? 0.004 : flankY(q.p.x, q.p.z);
+    if (!overVent && q.p.y <= gy + q.s * 0.45 && q.v.y <= 0) {
+      q.p.y = gy + q.s * 0.4;
+      const impact = -q.v.y;
+      if (impact > 0.18 && q.bounces < 2) {
+        q.v.y = impact * (0.28 + Math.random() * 0.1);
+        q.v.x *= 0.5;
+        q.v.z *= 0.5;
+        const push = rad > 0.001 ? 0.07 / rad : 0;
+        q.v.x += q.p.x * push;
+        q.v.z += q.p.z * push;
+        q.bounces++;
+      } else {
+        q.v.y = 0;
+        if (rad > 0.05 && rad < 0.16) {
+          q.v.x += (q.p.x / rad) * 0.45 * dt;
+          q.v.z += (q.p.z / rad) * 0.45 * dt;
+        }
+        const drag = Math.max(0, 1 - dt * 2.4);
+        q.v.x *= drag;
+        q.v.z *= drag;
+        if (q.v.lengthSq() < 0.0004) q.v.set(0, 0, 0);
+        q.spin *= Math.max(0, 1 - dt * 1.5);
+      }
+      q.heat -= dt * 0.055;
     } else {
-      q.heat -= dt * 0.28;
+      q.heat -= dt * 0.06;
     }
-    if (q.life > q.max || q.heat < -0.02) q.alive = false;
+    if (q.life > q.max || q.heat <= 0.02 || q.p.y < -0.02) q.alive = false;
     if (!q.alive) {
       bombsMesh.setMatrixAt(i, hiddenM);
       bombHeat.setX(i, 0);
@@ -1012,11 +980,11 @@ function updateEruption(dt, time) {
     puffCol.needsUpdate = true;
   }
 
-  const rumble = fade * (hot ? 1 : 0.4);
+  const rumble = hot ? fade : glow * 0.25;
   shake.rotation.x = Math.sin(time * 29) * 0.012 * rumble;
   shake.rotation.z = Math.cos(time * 23) * 0.01 * rumble;
   shake.position.y = Math.abs(Math.sin(time * 21)) * 0.0018 * rumble;
-  if (erupting && eruptAge > ERUPT_LEN + 2.5) erupting = false;
+  if (erupting && eruptAge > FLOW_SECS + 2.4) erupting = false;
 }
 
 function aliveCount() {
