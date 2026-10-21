@@ -18,3 +18,12 @@ Modelul 3D (`assets/volcano.glb`) este original: un con sculptat în cod, deplas
 - Pagină: https://ambientcg.com/view?id=Lava001
 - Fișier: `Lava001_1K-JPG.zip` de la https://ambientcg.com/get?file=Lava001_1K-JPG.zip
 - În pagină: `lava_color.webp` și `lava_emit.webp` (redimensionate la 1024²). Normala setului nu este folosită; crusta și curgerea sunt animate în shader.
+
+## Lemn — ambientCG „Wood049”
+
+Placa circuitului (`assets/wood_albedo.webp`, `wood_normal.webp`, `wood_rough.webp`).
+
+- Licență: [CC0](https://creativecommons.org/publicdomain/zero/1.0/)
+- Pagină: https://ambientcg.com/view?id=Wood049
+- Fișier: `Wood049_1K-JPG.zip` de la https://ambientcg.com/get?file=Wood049_1K-JPG.zip
+- Folosite: Color, NormalGL, Roughness (1K), salvate ca WebP. Bateria, becul, clemele și firele sunt geometrie three.js, nu modele de la terți. Eticheta „PILĂ USCATĂ / 1,5 V” este generică, fără marcă.
