@@ -330,6 +330,10 @@ function frame(now) {
     session.finish({ need: local.need });
   }
   follow(view);
+  if (view?.phase === 'podium') {
+    podium.update(dt);
+    scene.rig.spin(dt);
+  }
   let shownHint = hint;
   if (view?.youOut && view.phase === 'play') shownHint = 'Ești spectator. Urmărești cursa.';
   render({ menu, nick, toast, hint: shownHint, short: shorted, local, view, joinCode: presetRoom || null });
@@ -342,6 +346,7 @@ async function main() {
   scene = await createScene(canvas);
   podium = createPodium();
   scene.scene.add(podium.root);
+  await podium.ready;
   board = await createBoard(scene.THREE, scene.renderer, {
     onProgress(progress) {
       local = progress;

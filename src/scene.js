@@ -3,7 +3,8 @@ import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 const PLAY = { theta: 0.62, phi: 1.02, radius: 0.5, target: [0, 0.045, 0], fov: 42 };
-const PODIUM = { theta: 0.2, phi: 1.08, radius: 1.05, target: [0, 0.08, 0], fov: 46 };
+// Look below the blocks so the whole podium sits in the top of a portrait screen.
+const PODIUM = { theta: 0.42, phi: 1.2, radius: 1.12, target: [0, -0.05, 0.01], fov: 42 };
 
 export async function createScene(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
@@ -76,6 +77,7 @@ function createRig(THREE, canvas, camera) {
   let radius = PLAY.radius;
   let homePose = PLAY;
   let enabled = true;
+  let spinOn = false;
   let tapHandler = () => {};
   const pointers = new Map();
   let moved = 0;
@@ -190,8 +192,14 @@ function createRig(THREE, canvas, camera) {
 
   return {
     home(mode) {
+      spinOn = mode === 'podium';
       homePose = mode === 'podium' ? PODIUM : PLAY;
       poseFrom(homePose);
+    },
+    spin(dt) {
+      if (!spinOn || !enabled || pointers.size) return;
+      theta += dt * 0.2;
+      apply();
     },
     reset() { poseFrom(homePose); },
     setEnabled(value) { enabled = !!value; },

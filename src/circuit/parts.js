@@ -353,7 +353,7 @@ export function createFactory(THREE, renderer) {
     g.add(new THREE.Mesh(coilAlong([leftTip, mid, rightTip], 42, 0.0004, 0.00013), filamentMat));
 
     const halo = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: softDisc(), color: 0xffe2b0, transparent: true, blending: THREE.AdditiveBlending,
+      map: softDisc(), color: 0xff4a12, transparent: true, blending: THREE.NormalBlending,
       depthWrite: false, depthTest: false, toneMapped: false, opacity: 0,
     }));
     halo.position.y = 0.0422;
@@ -379,32 +379,43 @@ export function createFactory(THREE, renderer) {
     const { filamentMat, glassMat, light, halo } = bulb;
     const clamped = Math.max(0, Math.min(1, h));
     if (clamped < 0.015) {
+      filamentMat.toneMapped = true;
       filamentMat.color.copy(tungsten);
       filamentMat.emissive.setRGB(0, 0, 0);
       filamentMat.emissiveIntensity = 0;
-    } else if (clamped < 0.4) {
-      filamentMat.emissive.copy(heatRed).lerp(heatOrange, clamped / 0.4);
-      filamentMat.emissiveIntensity = 0.8 + clamped * 2.2;
-      filamentMat.color.set(0x3a2a28);
-    } else if (clamped < 0.75) {
-      filamentMat.emissive.copy(heatOrange).lerp(heatWhite, (clamped - 0.4) / 0.35);
-      filamentMat.emissiveIntensity = 1.6 + clamped * 2.4;
-      filamentMat.color.copy(filamentMat.emissive).multiplyScalar(0.3);
+    } else if (clamped < 0.72) {
+      // Un-tonemapped so a series filament stays orange-red instead of clipping to white.
+      const t = clamped / 0.72;
+      filamentMat.toneMapped = false;
+      filamentMat.emissive.setRGB(1, 0.16 + t * 0.2, 0.03);
+      filamentMat.emissiveIntensity = 1.25 + clamped * 0.7;
+      filamentMat.color.copy(filamentMat.emissive);
     } else {
-      filamentMat.emissive.copy(heatWhite);
-      filamentMat.emissiveIntensity = 2.4 + clamped * 1.6;
+      const t = (clamped - 0.72) / 0.28;
+      filamentMat.toneMapped = true;
+      filamentMat.emissive.copy(heatOrange).lerp(heatWhite, t);
+      filamentMat.emissiveIntensity = 3.2 + t * 1.4;
       filamentMat.color.set(0xfff3d4);
     }
-    glassMat.emissive.setRGB(1, 0.55, 0.22);
-    glassMat.emissiveIntensity = clamped * 0.02;
-    glassMat.attenuationColor.setRGB(1, 0.97 - clamped * 0.12, 0.92 - clamped * 0.28);
+    glassMat.emissive.setRGB(1, 0.34, 0.08);
+    glassMat.emissiveIntensity = clamped < 0.015 ? 0 : 0.012 + clamped * 0.04;
+    glassMat.attenuationColor.setRGB(1, 0.97 - clamped * 0.14, 0.9 - clamped * 0.32);
     light.intensity = clamped * 0.05;
-    light.color.setRGB(1, 0.72 + clamped * 0.12, 0.45);
-    halo.visible = clamped > 0.02;
-    halo.material.color.setHex(0xffb56a);
-    halo.material.opacity = clamped * 0.32;
-    const s = 0.007 + clamped * 0.007;
-    halo.scale.set(s, s, 1);
+    light.color.setRGB(1, 0.42 + clamped * 0.2, 0.12);
+    const on = clamped > 0.02;
+    halo.visible = on;
+    if (on && clamped < 0.72) {
+      halo.material.color.setRGB(1, 0.3, 0.05);
+      halo.material.opacity = 0.38 + clamped * 0.28;
+      const s = 0.034 + clamped * 0.01;
+      halo.scale.set(s, s, 1);
+    } else if (on) {
+      const t = (clamped - 0.72) / 0.28;
+      halo.material.color.setRGB(1, 0.62 + t * 0.25, 0.28 + t * 0.4);
+      halo.material.opacity = 0.4 + t * 0.22;
+      const s = 0.04 + t * 0.008;
+      halo.scale.set(s, s, 1);
+    }
   }
 
   function jawGeometry(sign) {
