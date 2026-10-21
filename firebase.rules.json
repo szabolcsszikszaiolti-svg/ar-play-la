@@ -1,0 +1,39 @@
+{
+  "rules": {
+    "rooms": {
+      "$code": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() && newData.child('hostId').val() == auth.uid && newData.child('createdAt').val() == now || data.child('hostId').val() == auth.uid && !newData.exists() || data.exists() && data.child('createdAt').val() < now - 7200000 && !newData.exists())",
+        "hostOnline": {
+          ".write": "auth != null && root.child('rooms').child($code).child('hostId').val() == auth.uid"
+        },
+        "state": {
+          ".write": "auth != null && root.child('rooms').child($code).child('hostId').val() == auth.uid"
+        },
+        "players": {
+          "$uid": {
+            ".write": "auth != null && auth.uid == $uid && root.child('rooms').child($code).child('hostId').exists()",
+            "nick": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40"
+            },
+            "age": {
+              ".validate": "newData.val() == 'small' || newData.val() == 'mid' || newData.val() == 'big'"
+            },
+            "made": {
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 12"
+            },
+            "need": {
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 12"
+            },
+            "connected": {
+              ".validate": "newData.isBoolean()"
+            },
+            "finishAt": {
+              ".validate": "newData.val() == now && (!data.exists() || data.val() == newData.val())"
+            }
+          }
+        }
+      }
+    }
+  }
+}

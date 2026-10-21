@@ -26,4 +26,12 @@ Placa circuitului (`assets/wood_albedo.webp`, `wood_normal.webp`, `wood_rough.we
 - Licență: [CC0](https://creativecommons.org/publicdomain/zero/1.0/)
 - Pagină: https://ambientcg.com/view?id=Wood049
 - Fișier: `Wood049_1K-JPG.zip` de la https://ambientcg.com/get?file=Wood049_1K-JPG.zip
-- Folosite: Color, NormalGL, Roughness (1K), salvate ca WebP. Bateria, becul, clemele și firele sunt geometrie three.js, nu modele de la terți. Eticheta „PILĂ USCATĂ / 1,5 V” este generică, fără marcă.
+- Folosite: Color, NormalGL, Roughness (1K), salvate ca WebP. Bateria, becul, clemele și firele sunt geometrie three.js, nu modele de la terți. Eticheta „1.5V / AA” este generică, fără marcă.
+
+## Lumină de studio — Poly Haven „Studio Small 09”
+
+Mediul HDR care luminează metalele și sticla în Science Race (`assets/studio_small_09_1k.hdr`).
+
+- Licență: [CC0](https://creativecommons.org/publicdomain/zero/1.0/)
+- Pagină: https://polyhaven.com/a/studio_small_09
+- Fișier: HDR 1k, https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr

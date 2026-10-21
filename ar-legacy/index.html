@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>AR Play Lab</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔬</text></svg>">
+<style>
+  :root { --orange:#ff7a1a; --yellow:#ffd23f; --blue:#3ec1ff; --purple:#8b5cf6; --green:#22c55e; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; height:100%; overflow:hidden; font-family: "Trebuchet MS", "Comic Sans MS", system-ui, sans-serif; background:#c5e6f6; }
+  canvas { display:block; touch-action:none; }
+  #overlay { position:fixed; inset:0; pointer-events:none; z-index:10; }
+  #overlay > * { pointer-events:none; }
+  #overlay button { pointer-events:auto; }
+  #touch { display:none; }
+  #title { position:absolute; top:12px; left:50%; transform:translateX(-50%); background:#fff; color:var(--purple);
+    padding:8px 18px; border-radius:999px; font-weight:bold; font-size:20px; box-shadow:0 4px 0 #0002; white-space:nowrap; z-index:2; }
+  #hint { position:absolute; top:64px; left:50%; transform:translateX(-50%); width:min(92vw,460px); text-align:center;
+    background:#fffbe6; color:#333; padding:10px 14px; border-radius:16px; font-size:18px; box-shadow:0 4px 0 #0002; z-index:2; }
+  .btnrow { position:absolute; bottom:24px; left:0; right:0; display:flex; gap:12px; justify-content:center; flex-wrap:wrap; padding:0 12px; z-index:2; }
+  button { font:inherit; font-size:22px; font-weight:bold; border:none; border-radius:22px; padding:16px 26px; color:#fff;
+    box-shadow:0 6px 0 #0003; cursor:pointer; min-width:140px; }
+  button:active { transform:translateY(4px); box-shadow:0 2px 0 #0003; }
+  button[hidden] { display:none; }
+  #arBtn { background:var(--green); }
+  #eruptBtn { background:var(--orange); }
+  #resetBtn, #circuitResetBtn, #electronsBtn, #switchBtn, #helpBtn { background:var(--blue); font-size:18px; min-width:auto; }
+  #helpBtn { background:var(--orange); }
+  #electronsBtn.on { background:#b45309; }
+  #exitBtn { position:absolute; top:12px; right:12px; background:#ef4444; font-size:16px; padding:8px 14px; min-width:auto; z-index:3; }
+  #muteBtn { position:absolute; top:12px; left:12px; background:#334155; font-size:20px; padding:8px 12px; min-width:auto; z-index:3; }
+  #card { position:absolute; left:50%; bottom:110px; transform:translateX(-50%); width:min(92vw,440px); background:#fff;
+    border:4px solid var(--yellow); border-radius:20px; padding:14px 16px; font-size:17px; color:#333; box-shadow:0 6px 0 #0002; z-index:3; }
+  #card h3 { margin:0 0 6px; color:var(--orange); font-size:20px; }
+  #card[hidden] { display:none; }
+  #cardClose { position:absolute; top:6px; right:8px; background:transparent; color:#999; box-shadow:none; font-size:22px; padding:4px 8px; min-width:auto; }
+  #loader { position:fixed; inset:0; z-index:30; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; background:#1c1410; color:#fff8ee; font-size:22px; font-weight:bold; }
+  #loader[hidden] { display:none; }
+  #loader .bar { width:min(72vw, 280px); height:12px; background:#3a2a22; border-radius:99px; overflow:hidden; }
+  #loadBar { height:100%; width:0%; background:#ff7a1a; }
+  #picker { position:fixed; inset:0; z-index:40; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:16px; padding:24px; background:linear-gradient(#d7f0fb, #f6e4c8); }
+  #picker[hidden] { display:none; }
+  .pick-title { font-size:34px; font-weight:bold; color:var(--purple); background:#fff; padding:10px 22px; border-radius:999px; box-shadow:0 4px 0 #0002; }
+  .pick-safe { margin:0; max-width:440px; text-align:center; font-size:18px; color:#333; background:#fffbe6; padding:10px 14px; border-radius:16px; }
+  button.pick { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; width:min(92vw, 440px);
+    min-height:132px; background:#fff; color:#2a2140; border-radius:28px; box-shadow:0 8px 0 #0002; font-size:32px; }
+  button.pick small { font-size:16px; font-weight:normal; color:#665; }
+  button.pick .emo { font-size:42px; line-height:1; }
+  #switcher { position:absolute; left:50%; top:46%; transform:translate(-50%,-50%); width:min(92vw, 420px); background:#fff;
+    border-radius:24px; padding:16px; box-shadow:0 10px 0 #0002; z-index:5; display:flex; flex-direction:column; gap:10px; }
+  #switcher[hidden] { display:none; }
+  #switcher p { margin:0; text-align:center; font-size:20px; font-weight:bold; color:var(--purple); }
+  #switcher button { width:100%; }
+  #switchStay { background:#64748b; }
+</style>
+</head>
+<body>
+<div id="picker">
+  <div class="pick-title">🔬 AR Play Lab</div>
+  <p class="pick-safe">Alege un experiment. Joacă-te într-un loc liber, cu un adult aproape.</p>
+  <button type="button" class="pick" data-exp="volcano"><span class="emo">🌋</span><span>Vulcan</span><small>Erupție pe masă</small></button>
+  <button type="button" class="pick" data-exp="circuit"><span class="emo">💡</span><span>Circuit electric</span><small>Baterie, fire și bec</small></button>
+</div>
+<div id="loader" hidden><div id="loaderText">Se încarcă…</div><div class="bar"><div id="loadBar"></div></div></div>
+<div id="overlay">
+  <div id="touch" hidden></div>
+  <div id="title">🔬 AR Play Lab</div>
+  <div id="hint">Alege un experiment.</div>
+  <button id="muteBtn" type="button" aria-label="Oprește sunetul">🔊</button>
+  <button id="exitBtn" hidden>✕ Ieși</button>
+  <div id="switcher" hidden>
+    <p>Schimbă experimentul</p>
+    <button type="button" data-exp="volcano">🌋 Vulcan</button>
+    <button type="button" data-exp="circuit">💡 Circuit electric</button>
+    <button type="button" id="switchStay">Rămâi aici</button>
+  </div>
+  <div id="card" hidden>
+    <button id="cardClose" aria-label="Închide">✕</button>
+    <h3>Ce s-a întâmplat? 🔬</h3>
+    <div>Adânc sub pământ e foarte cald, iar rocile se topesc și devin <b>magmă</b>.
+      Gazele din magmă împing în sus, ca bulele dintr-o sticlă de suc agitată.
+      Când presiunea e prea mare, magma iese prin <b>crater</b> – acum se numește <b>lavă</b>!</div>
+  </div>
+  <div class="btnrow">
+    <button id="arBtn" hidden>📱 Pornește AR</button>
+    <button id="eruptBtn" hidden>🔥 Erupe!</button>
+    <button id="electronsBtn" hidden>✦ Electroni</button>
+    <button id="helpBtn" hidden>👉 Ajută-mă</button>
+    <button id="circuitResetBtn" hidden>↺ Resetează</button>
+    <button id="resetBtn" hidden>↺ Mută vulcanul</button>
+    <button id="switchBtn" hidden>⇄ Schimbă</button>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>

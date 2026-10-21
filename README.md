@@ -1,66 +1,56 @@
-# AR Play Lab — WebXR (Android Chrome)
+# Science Race
 
-`index.html` încarcă three.js din CDN. La deschidere alegi experimentul, pe ecran mare: **Vulcan** sau **Circuit electric**. În AR, **„⇄ Schimbă”** trece de la unul la altul fără să ieși din sesiune. Ambele folosesc aceeași căutare a mesei: mai multe raze, planul cel mai mare și mai înalt, planurile mici ignorate, tap de plasare, umbră de contact.
+Cursă de circuite pentru 2–4 copii, în 3D, pe telefon. Fără cont, fără chat, fără nume scris de mână.
 
-**Vulcanul** este modelul sculptat `assets/volcano.glb` (meshopt) cu texturi foto CC0. **„Erupe!”** pornește lava, bombele și fumul. Poți apropia telefonul și te uiti în crater.
+Deschide pe telefon: **https://szabolcsszikszaiolti-svg.github.io/ar-play-la/**
 
-**Circuitul** este construit în three.js, la scară de masă (placa are ~30 cm). Atingi un capăt de fir, apoi un șurub: se lipește singur. Poți și ține degetul și trage, dar nu e nevoie de precizie. Apoi închizi întrerupătorul. Când bucla baterie–fir–întrerupător–bec–fir–baterie e închisă, filamentul se încălzește, sticla capătă o aură caldă și o lumină reală cade pe placă. **„👉 Ajută-mă”** leagă următorul fir. **„✦ Electroni”** arată puncte mici de-a lungul firelor (oprit implicit). **„↺ Resetează”** desface firele.
+Laboratorul vechi de realitate augmentată (vulcan + circuit) rămâne la **/ar-legacy/** și nu s-a schimbat ca joc.
 
-Texturile CC0 (rocă Poly Haven, lavă și lemn ambientCG) sunt în [`CREDITS.md`](CREDITS.md). Pe desktop / iPhone se deschide automat **modul 3D** (fără cameră).
+## Cum joci cu două telefoane
 
-**GitHub Pages (main, rădăcină):** https://szabolcsszikszaiolti-svg.github.io/ar-play-la/
+1. Ambele telefoane deschid linkul de mai sus, în Chrome sau Safari, cu internet.
+2. Pe primul telefon: **Creează cameră**. Alege porecla (o atingi, nu o scrii). Apare un cod de 4 semne, de exemplu `K7QZ`.
+3. Apasă **Distribuie** și trimite linkul, sau spune codul cu vocea.
+4. Pe al doilea telefon: **Intră în cameră** și pune codul.
+5. Pe telefonul gazdei alege **Puncte** sau **Eliminare**, apoi **Start**.
+6. Amândoi văd 3, 2, 1. Atinge un clește (devine verde), apoi un șurub. Când becul se aprinde, runda ta s-a terminat.
+7. Apare **Gata!** cu timpii. Gazda apasă **Continuă** pentru nivelul următor. La final e podiumul și **Jucăm iar**.
 
-Deschide linkul de mai sus în Chrome pe telefon. Fișierul e în rădăcina repo-ului, cu căi relative și un `.nojekyll` gol, ca Pages să-l servească din subcalea `/ar-play-la/` fără procesare Jekyll.
+**Joacă singur** e antrenament, fără rețea.
 
-## Ce îți trebuie pe telefon (Android)
-1. Telefon din lista ARCore: https://developers.google.com/ar/devices
-2. **Google Play Services for AR** instalat și actualizat din Play Store (caută „Google Play Services for AR”). Pe multe telefoane e preinstalat; dacă AR nu pornește, actualizează-l.
-3. **Google Chrome** actualizat (nu Samsung Internet / Firefox pentru test).
-4. Pagina trebuie servită prin **HTTPS** (WebXR nu merge pe `http://`, cu excepția `localhost`).
+Un deget rotește masa. Două degete fac zoom. **🎯 Recentrează** aduce camera înapoi. Nu poți trece pe sub masă.
 
-## Varianta 1 — GitHub Pages (cea mai simplă, link permanent)
-1. Pagina e deja aici: `index.html` în rădăcina branch-ului `main` (plus `.nojekyll`).
-2. Repo → **Settings → Pages** → Source: *Deploy from a branch* → `main` / `(root)` → Save.
-3. După ~1 minut deschide **https://szabolcsszikszaiolti-svg.github.io/ar-play-la/** în Chrome pe telefon.
+## Ce e gata acum
 
-## Varianta 2 — server local + tunel HTTPS (pentru iterații rapide)
-Pe calculator, în rădăcina repo-ului:
+- 3 niveluri, grupa Mijlocii (8–10): baterie + bec; + întrerupător; două becuri în serie (luminează mai slab).
+- Camere de 2–4 jucători. Implicit **PeerJS** (WebRTC prin brokerul public `0.peerjs.com`). Telefonul gazdei e serverul: el ține ceasul, numărătoarea, timpii și locurile.
+- Dacă gazda pleacă, ceilalți văd „Gazda a plecat”. Un jucător care pleacă e marcat ieșit.
+- Specul complet e în [`docs/GAME_SPEC.md`](docs/GAME_SPEC.md). Specul vechi de AR e păstrat în [`docs/MVP_SPEC.md`](docs/MVP_SPEC.md).
+
+## Ce nu e încă legat
+
+Firebase nu pornește singur: în [`config.js`](config.js) stă `firebaseConfig = null`. Până umpli configul, jocul rămâne pe PeerJS. Grupele Mici și Mari, stelele salvate, alte jocuri și plățile nu sunt în prototip.
+
+## Ca să treci pe Firebase (când vrei)
+
+1. Intră pe https://console.firebase.google.com și creează un proiect **nou**. La întrebarea de Analytics, lasă **dezactivat**.
+2. **Build → Authentication → Sign-in method → Anonymous → Enable**. Salvează.
+3. **Build → Realtime Database → Create Database**.
+   - Alege locația **europe-west1** (Belgia), dacă apare în listă. RTDB oferă de obicei `us-central1`, `europe-west1` și `asia-southeast1`.
+   - Pornește în **locked mode**.
+4. Deschide fila **Rules**, șterge ce e acolo și lipește tot fișierul [`firebase.rules.json`](firebase.rules.json). Apasă **Publish**.
+   Regulile fac asta: citește doar cine e autentificat anonim; fiecare copil scrie doar în `players/{uid-ul lui}`; `finishAt` se poate pune o singură dată și doar cu ora serverului (`now`); gazda scrie starea camerei; camera se poate șterge de gazdă, sau de oricine dacă e mai veche de 2 ore.
+5. **Project settings (rotița) → Your apps → Add app → Web** (`</>`). Nu bifa Analytics. Copiază obiectul `firebaseConfig`.
+6. În `config.js` înlocuiește `null` cu obiectul. `databaseURL` arată cam așa: `https://NUMELE-PROIECTULUI-default-rtdb.europe-west1.firebasedatabase.app`.
+7. Fă commit și push pe `main`. La următoarea deschidere, jocul folosește Firebase în loc de PeerJS. Nu adăuga Analytics, Crashlytics sau alt SDK.
+
+Adapterul din `src/net/firebase.js` urmează schema din spec §3 (cameră, `serverTimestamp` la final, `onDisconnect`, ceas `.info/serverTimeOffset`). Nu a fost rulat pe un proiect real, pentru că proiectul încă nu există.
+
+## Verificări locale
+
 ```bash
-python3 -m http.server 8000
-# într-un alt terminal, una dintre variante:
-npx cloudflared tunnel --url http://localhost:8000     # Cloudflare quick tunnel, fără cont
-# sau
-ngrok http 8000                                        # cere cont ngrok gratuit
+node --test test/race.test.js
+python3 -m http.server 8765
 ```
-Deschide pe telefon linkul `https://...` afișat de tunel.
 
-## Varianta 3 — USB + Chrome port forwarding (fără internet public)
-1. Pe telefon: activează *Developer options* → *USB debugging*; conectează-l prin USB.
-2. Pe calculator: Chrome → `chrome://inspect/#devices` → **Port forwarding** → `8000` → `localhost:8000` → bifează „Enable port forwarding”.
-3. Pornește `python3 -m http.server 8000` și pe telefon deschide `http://localhost:8000` (localhost e considerat „secure”, deci WebXR merge). Bonus: vezi consola telefonului în `chrome://inspect`.
-
-## Cum se testează
-1. Deschide linkul → două carduri, **Vulcan** și **Circuit electric**. Alege unul. Apare butonul verde **„📱 Pornește AR”**. (Dacă lipsește: telefonul/Chrome nu raportează suport `immersive-ar` → verifică pașii de mai sus.)
-2. Apasă „Pornește AR”, acceptă permisiunea pentru cameră.
-3. Stai pe scaun, ține telefonul **puțin mai sus** și mișcă-l încet deasupra unei mese luminate, cu textură (nu sticlă/alb lucios). Apare **reticulul galben pe masă**, nu pe tastatură, mouse sau piciorul monitorului. Dacă nu găsește masa, textul spune: „Ține telefonul puțin mai sus și mișcă-l încet”.
-4. **Atinge ecranul** → experimentul apare pe masă, cu umbră de contact. Lumina ar trebui să semene cu camera (dacă telefonul dă light estimation).
-5. La vulcan: **„🔥 Erupe!”** → lavă pe pante, fum, scântei, un ușor tremur, sunet. **🔊** (stânga sus) oprește sunetul. Apoi cardul „Ce s-a întâmplat?”. Apropie telefonul și uită-te **în crater**.
-6. La circuit: pune telefonul pe masă și apleacă-te. **Atinge** un capăt de fir (se aprinde), apoi **atinge** șurubul. Dacă mâna tremură, nu trage: ținta e lată. După ~20 s, capătul următor pulsează. **„👉 Ajută-mă”** leagă următorul fir singur. Închide întrerupătorul. Textul devine „Circuit închis!…”. Apropie telefonul de bec și uită-te **în sticlă**, la filament. **„✦ Electroni”** pornește punctele de pe fire. **„↺ Resetează”** le desface.
-7. **„⇄ Schimbă”** trece la celălalt experiment, pe aceeași masă, fără să ieși din AR. **„↺ Mută”** îl pune în alt loc. **„✕ Ieși”** închide AR.
-
-### Probleme frecvente
-- *Reticulul sare pe obiecte mici:* ține telefonul mai de sus, ca să vadă toată masa, și mișcă-l încet. Chrome nou (cu plane detection) ignoră planurile mici; pe Chrome mai vechi se folosesc mai multe raze în jos și se păstrează suprafața cea mai joasă.
-- *Nu apare reticulul:* lumină slabă sau suprafață fără textură; mișcă telefonul lateral 2–3 secunde.
-- *„Nu am putut porni AR”:* actualizează Google Play Services for AR și Chrome; verifică că URL-ul e `https://`.
-- *Butoanele nu se văd în AR:* Chrome vechi fără `dom-overlay` — actualizează Chrome.
-
-## iPhone (pe scurt)
-Safari pe iOS **nu** suportă WebXR AR, deci pe iPhone se vede doar modul 3D (rotire cu degetul + „Erupe!”). Pentru AR pe iPhone în producție: aplicație Unity AR Foundation (ARKit); pentru un demo rapid se poate adăuga un `<model-viewer>` cu USDZ (AR Quick Look), dar fără erupția interactivă.
-
-## Verificat pe box
-- Sintaxa JS (`node --check`)
-- Modul fallback 3D în Chrome headless, servit din subcalea `/ar-play-la/`: fără erori în consolă, bara de încărcare dispare, „Erupe!” pornește lavă / fum / scântei
-- **De retestat pe telefon (vulcan, neschimbat):** cheagurile cad pe pante sau pe masă și se închid la culoare; pâraiele stau pe stâncă, în chei, și înaintează încet (~14 s).
-- **De retestat pe telefon (circuit):** în AR, atinge un fir apoi un șurub (fără să tragi). Butoanele de sus și de jos rămân apăsabile. Apropie telefonul la 5–10 cm de bec și de o clemă.
-
-Specificația de produs: [`docs/MVP_SPEC.md`](docs/MVP_SPEC.md).
+Apoi deschide `http://127.0.0.1:8765/`. PeerJS pe `http://` poate refuza brokerul; pe GitHub Pages (https) merge. Pentru două taburi fără internet, adaugă `?net=channel` (doar pentru test).

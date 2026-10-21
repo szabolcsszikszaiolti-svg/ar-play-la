@@ -1174,7 +1174,7 @@ export function createCircuitExperiment(ctx) {
     if (onProgress) onProgress(0.2);
     const texLoader = new THREE.TextureLoader();
     const loadTex = (file, color) => new Promise((resolve, reject) => {
-      texLoader.load(new URL('../assets/' + file, import.meta.url).href, (tex) => {
+      texLoader.load(new URL('../../assets/' + file, import.meta.url).href, (tex) => {
         tex.colorSpace = color ? THREE.SRGBColorSpace : THREE.NoColorSpace;
         tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
         anisotropy(tex);

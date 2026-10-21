@@ -3,7 +3,7 @@
 export function createVolcanoExperiment(ctx) {
   const { THREE, GLTFLoader, MeshoptDecoder, scene, camera, renderer, card, muteBtn } = ctx;
   const getControls = () => (ctx.getControls ? ctx.getControls() : null);
-  const assetURL = (name) => new URL('../assets/' + name, import.meta.url).href;
+  const assetURL = (name) => new URL('../../assets/' + name, import.meta.url).href;
 
 let H = 0.176;
 let poolSurface = 0.11;
