@@ -1,5 +1,8 @@
 // Tabletop battery, switch and bulb. Parts are built in three.js so the
 // filament, glass and stripped copper still read from a few centimetres away.
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
 export function createCircuitExperiment(ctx) {
   const { THREE, scene, renderer } = ctx;
   const TOP = 0.018;
@@ -16,7 +19,6 @@ export function createCircuitExperiment(ctx) {
   let glassMat = null;
   let bulbLight = null;
   let halo = null;
-  let haloWide = null;
   let heat = 0;
   let electronsOn = false;
   let drag = null;
@@ -26,18 +28,25 @@ export function createCircuitExperiment(ctx) {
   const clipLocal = new THREE.Vector3();
   let boardMesh = null;
 
-  const brass = new THREE.MeshStandardMaterial({ color: 0xc6a15e, metalness: 1, roughness: 0.28, envMapIntensity: 1 });
-  const copper = new THREE.MeshStandardMaterial({ color: 0xb4683c, metalness: 1, roughness: 0.18, envMapIntensity: 1.15 });
-  const nickel = new THREE.MeshStandardMaterial({ color: 0xb7bcc4, metalness: 1, roughness: 0.32, envMapIntensity: 1 });
-  const steel = new THREE.MeshStandardMaterial({ color: 0x8e949c, metalness: 1, roughness: 0.38, envMapIntensity: 0.8 });
-  const absBlack = new THREE.MeshStandardMaterial({ color: 0x1a1b1e, metalness: 0.04, roughness: 0.52 });
-  const ceramic = new THREE.MeshStandardMaterial({ color: 0xe6e0d4, metalness: 0, roughness: 0.62 });
-  const pvc = {
-    red: new THREE.MeshStandardMaterial({ color: 0x8e1d22, metalness: 0, roughness: 0.46 }),
-    blue: new THREE.MeshStandardMaterial({ color: 0x1d3f86, metalness: 0, roughness: 0.46 }),
-    black: new THREE.MeshStandardMaterial({ color: 0x161616, metalness: 0, roughness: 0.5 }),
-  };
+  const WIRE_R = 0.00125;
+  const brass = new THREE.MeshStandardMaterial({ color: 0xb08a45, metalness: 1, roughness: 0.32, envMapIntensity: 1.05 });
+  const copper = new THREE.MeshStandardMaterial({ color: 0xd4894a, metalness: 1, roughness: 0.16, envMapIntensity: 1.35 });
+  const nickel = new THREE.MeshStandardMaterial({ color: 0xc5c8ce, metalness: 1, roughness: 0.28, envMapIntensity: 1.1 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0xa7adb4, metalness: 1, roughness: 0.35, envMapIntensity: 1.05 });
+  const absBlack = new THREE.MeshPhysicalMaterial({ color: 0x1a1c1f, metalness: 0.02, roughness: 0.42, clearcoat: 0.18, clearcoatRoughness: 0.4 });
+  const ceramic = new THREE.MeshStandardMaterial({ color: 0xa89880, metalness: 0, roughness: 0.62, envMapIntensity: 0.3 });
+  const phenolic = new THREE.MeshStandardMaterial({ color: 0x241c18, metalness: 0.04, roughness: 0.48, envMapIntensity: 0.25 });
+  function pvcMat(color) {
+    return new THREE.MeshPhysicalMaterial({
+      color, metalness: 0, roughness: 0.3, clearcoat: 0.4, clearcoatRoughness: 0.22, envMapIntensity: 0.4,
+    });
+  }
+  const pvc = { red: pvcMat(0x9a1f24), blue: pvcMat(0x1a3f86), black: pvcMat(0x141414) };
   const rubber = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.85, metalness: 0 });
+  const tungsten = new THREE.Color(0x8a8d91);
+  const heatRed = new THREE.Color(0x7a0c04);
+  const heatOrange = new THREE.Color(0xff4e0c);
+  const heatWhite = new THREE.Color(0xfff6df);
 
   function anisotropy(tex) {
     tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy() || 1);
@@ -47,17 +56,24 @@ export function createCircuitExperiment(ctx) {
 
   function post(x, z, colorMat, id) {
     const g = new THREE.Group();
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.0026, 0.0028, 0.008, 16), colorMat);
-    stem.position.y = 0.004;
-    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.0054, 0.0054, 0.0042, 24), nickel);
-    head.position.y = 0.0092;
-    const slot = new THREE.Mesh(new THREE.BoxGeometry(0.0062, 0.00055, 0.00085), absBlack);
-    slot.position.y = 0.0112;
-    g.add(stem, head, slot);
+    const stud = new THREE.Mesh(new THREE.CylinderGeometry(0.00205, 0.00205, 0.0062, 20), colorMat);
+    stud.position.y = 0.0031;
+    g.add(stud);
+    for (let i = 0; i < 4; i++) {
+      const thread = new THREE.Mesh(new THREE.TorusGeometry(0.00235, 0.0002, 5, 18), colorMat);
+      thread.rotation.x = Math.PI / 2;
+      thread.position.y = 0.0014 + i * 0.00125;
+      g.add(thread);
+    }
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.0043, 0.0043, 0.0017, 28), colorMat);
+    head.position.y = 0.0069;
+    const slot = new THREE.Mesh(new THREE.BoxGeometry(0.0054, 0.00035, 0.00065), absBlack);
+    slot.position.y = 0.00775;
+    g.add(head, slot);
     g.position.set(x, TOP, z);
     add(g);
-    head.material = nickel.clone();
-    const t = { id, x, z, y: TOP + 0.0092, mesh: head, mat: head.material };
+    head.material = colorMat.clone();
+    const t = { id, x, z, y: TOP + 0.0069, mesh: head, mat: head.material };
     t.base = head.material.emissive.clone();
     terminals.push(t);
     return t;
@@ -67,28 +83,32 @@ export function createCircuitExperiment(ctx) {
     const c = document.createElement('canvas');
     c.width = 512; c.height = 256;
     const g = c.getContext('2d');
-    g.fillStyle = '#f3ead7';
+    g.fillStyle = '#f4efe4';
     g.fillRect(0, 0, 512, 256);
-    for (let i = 0; i < 1800; i++) {
-      const v = 210 + Math.random() * 30;
-      g.fillStyle = `rgba(${v},${v - 12},${v - 28},0.18)`;
+    for (let i = 0; i < 900; i++) {
+      const v = 220 + Math.random() * 25;
+      g.fillStyle = `rgba(${v - 8},${v - 16},${v - 28},0.16)`;
       g.fillRect(Math.random() * 512, Math.random() * 256, 2, 1);
     }
-    g.strokeStyle = '#7d1e22';
-    g.lineWidth = 8;
-    g.strokeRect(16, 16, 480, 224);
-    g.fillStyle = '#1c1c1c';
+    g.strokeStyle = '#8e1d22';
+    g.lineWidth = 10;
+    g.strokeRect(18, 18, 476, 220);
+    g.fillStyle = '#1a1a1a';
     g.textAlign = 'center';
-    g.font = 'bold 54px Georgia, "Times New Roman", serif';
-    g.fillText('PILĂ USCATĂ', 256, 108);
-    g.fillStyle = '#8d1f24';
-    g.font = 'bold 62px Georgia, "Times New Roman", serif';
-    g.fillText('1,5 V', 256, 176);
-    g.fillStyle = '#333';
-    g.font = '28px Georgia, serif';
-    g.fillText('AA  ·  nealcalină', 256, 214);
+    g.textBaseline = 'middle';
+    for (const cx of [78, 334]) {
+      g.save();
+      g.translate(cx, 128);
+      g.rotate(-Math.PI / 2);
+      g.font = 'bold 86px Georgia, "Times New Roman", serif';
+      g.fillText('1.5V', 0, -6);
+      g.font = 'bold 58px Georgia, serif';
+      g.fillText('AA', 0, 58);
+      g.restore();
+    }
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
     anisotropy(tex);
     return tex;
   }
@@ -120,123 +140,166 @@ export function createCircuitExperiment(ctx) {
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.00715, 0.00715, 0.046, 36),
       new THREE.MeshStandardMaterial({ map: makeLabel(), roughness: 0.72, metalness: 0.02 }));
     body.rotation.z = Math.PI / 2;
-    const plus = new THREE.Mesh(new THREE.CylinderGeometry(0.0064, 0.0066, 0.0032, 28), nickel);
+    const plus = new THREE.Mesh(new THREE.CylinderGeometry(0.0065, 0.0067, 0.0024, 28), nickel);
     plus.rotation.z = Math.PI / 2;
-    plus.position.x = 0.0242;
-    const nub = new THREE.Mesh(new THREE.CylinderGeometry(0.0026, 0.003, 0.0016, 16), brass);
+    plus.position.x = 0.0238;
+    const nub = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0025, 0.0015, 18), nickel);
     nub.rotation.z = Math.PI / 2;
-    nub.position.x = 0.0264;
-    const minus = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.0014, 28), steel);
-    minus.rotation.z = Math.PI / 2;
-    minus.position.x = -0.0236;
-    const plusMark = new THREE.Mesh(new THREE.BoxGeometry(0.0032, 0.0004, 0.0008), absBlack);
-    plusMark.position.set(0.0273, 0, 0);
+    nub.position.x = 0.0256;
+    const plusMark = new THREE.Mesh(new THREE.BoxGeometry(0.0024, 0.00025, 0.00055), absBlack);
+    plusMark.position.set(0.0264, 0, 0);
     const plusMark2 = plusMark.clone();
     plusMark2.rotation.x = Math.PI / 2;
-    const minusMark = new THREE.Mesh(new THREE.BoxGeometry(0.0005, 0.0032, 0.0008), absBlack);
-    minusMark.position.set(-0.0245, 0, 0);
+    const minus = new THREE.Mesh(new THREE.CylinderGeometry(0.00705, 0.00705, 0.0011, 28), steel);
+    minus.rotation.z = Math.PI / 2;
+    minus.position.x = -0.0234;
+    const minusMark = new THREE.Mesh(new THREE.BoxGeometry(0.00035, 0.0026, 0.0005), absBlack);
+    minusMark.position.set(-0.0241, 0, 0);
     g.add(body, plus, nub, minus, plusMark, plusMark2, minusMark);
     g.position.set(x, TOP + 0.012, z);
     add(g);
   }
 
+  function pearProfile() {
+    const pts = [];
+    const cy = 0.036;
+    const rx = 0.0152;
+    const ry = 0.0168;
+    const neckR = 0.00525;
+    const neckY = 0.0132;
+    const dyJoin = -Math.sqrt(Math.max(0, 1 - (neckR / rx) ** 2));
+    const yJoin = cy + dyJoin * ry;
+    pts.push(new THREE.Vector2(neckR, neckY));
+    pts.push(new THREE.Vector2(neckR, yJoin));
+    const n = 40;
+    for (let i = 1; i <= n; i++) {
+      const u = i / n;
+      const y = yJoin + u * (cy + ry - yJoin);
+      const dy = (y - cy) / ry;
+      const r = rx * Math.sqrt(Math.max(0, 1 - dy * dy));
+      pts.push(new THREE.Vector2(Math.max(0.0004, r), y));
+    }
+    return pts;
+  }
+
+  function coilAlong(path, turns, coilR, tubeR) {
+    const spine = new THREE.CatmullRomCurve3(path);
+    const steps = turns * 8;
+    const pts = [];
+    const side = new THREE.Vector3();
+    const bin = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 0, 1);
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const p = spine.getPointAt(t);
+      const tan = spine.getTangentAt(t).normalize();
+      side.crossVectors(tan, up);
+      if (side.lengthSq() < 1e-8) side.set(1, 0, 0);
+      side.normalize();
+      bin.crossVectors(tan, side).normalize();
+      const a = t * turns * Math.PI * 2;
+      p.addScaledVector(side, Math.cos(a) * coilR);
+      p.addScaledVector(bin, Math.sin(a) * coilR);
+      pts.push(p);
+    }
+    return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), steps, tubeR, 4, false);
+  }
+
   function makeBulb(x, z) {
     const g = new THREE.Group();
-    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.008, 0.034), ceramic);
+    const foot = new THREE.Mesh(new RoundedBoxGeometry(0.058, 0.008, 0.032, 3, 0.0016), ceramic);
     foot.position.y = 0.004;
     g.add(foot);
-    const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.0062, 0.0064, 0.014, 28), brass);
-    shell.position.y = 0.015;
+    const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.00555, 0.0057, 0.011, 36), brass);
+    shell.position.y = 0.0095;
     g.add(shell);
     for (let i = 0; i < 5; i++) {
-      const thread = new THREE.Mesh(new THREE.TorusGeometry(0.0065, 0.00055, 6, 28), brass);
+      const thread = new THREE.Mesh(new THREE.TorusGeometry(0.00585, 0.00032, 6, 32), brass);
       thread.rotation.x = Math.PI / 2;
-      thread.position.y = 0.010 + i * 0.0024;
+      thread.position.y = 0.0052 + i * 0.0017;
       g.add(thread);
     }
-    const pts = [
-      [0.0044, 0.020], [0.0052, 0.024], [0.0074, 0.030], [0.0086, 0.037],
-      [0.0082, 0.044], [0.0062, 0.050], [0.0034, 0.054], [0.0011, 0.056],
-    ].map(([r, y]) => new THREE.Vector2(r, y));
+    const contact = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0024, 0.0012, 16), nickel);
+    contact.position.y = 0.0036;
+    g.add(contact);
+
     glassMat = new THREE.MeshPhysicalMaterial({
       color: 0xffffff,
       metalness: 0,
-      roughness: 0.045,
+      roughness: 0.025,
       transmission: 1,
-      thickness: 0.0014,
-      ior: 1.52,
+      thickness: 0.0011,
+      ior: 1.5,
       transparent: true,
-      attenuationColor: new THREE.Color(0xf4f7f8),
-      attenuationDistance: 0.05,
+      attenuationColor: new THREE.Color(0xf7f8f8),
+      attenuationDistance: 0.09,
       clearcoat: 1,
-      clearcoatRoughness: 0.06,
-      envMapIntensity: 1.2,
+      clearcoatRoughness: 0.02,
+      envMapIntensity: 1.45,
+      specularIntensity: 1,
       side: THREE.FrontSide,
     });
-    const glass = new THREE.Mesh(new THREE.LatheGeometry(pts, 56), glassMat);
-    g.add(glass);
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.0011, 0.0015, 0.016, 12),
-      new THREE.MeshPhysicalMaterial({
-        color: 0xe7f2f1, roughness: 0.15, transmission: 0.85, thickness: 0.0008, transparent: true, opacity: 1,
-      }));
-    stem.position.y = 0.030;
+    g.add(new THREE.Mesh(new THREE.LatheGeometry(pearProfile(), 80), glassMat));
+
+    const stemMat = new THREE.MeshPhysicalMaterial({
+      color: 0xe8f1f0, roughness: 0.08, transmission: 0.92, thickness: 0.0006, transparent: true, ior: 1.5,
+    });
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.0009, 0.00115, 0.016, 16), stemMat);
+    stem.position.y = 0.026;
     g.add(stem);
-    const bead = new THREE.Mesh(new THREE.SphereGeometry(0.0016, 12, 10), stem.material);
-    bead.position.y = 0.038;
+    const bead = new THREE.Mesh(new THREE.SphereGeometry(0.0017, 16, 12), stemMat);
+    bead.position.y = 0.0342;
     g.add(bead);
 
-    const supports = [];
-    function supportWire(x0, z0) {
-      const curve = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(x0, 0.022, z0),
-        new THREE.Vector3(x0 * 0.7, 0.034, z0 * 0.4),
-        new THREE.Vector3(x0 * 0.35, 0.040, 0),
-      ]);
-      const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, 0.00022, 6, false), steel);
-      g.add(mesh);
-      supports.push(mesh);
-      return curve.getPoint(1);
+    const leadR = 0.00016;
+    function lead(points) {
+      g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 16, leadR, 5, false), nickel));
     }
-    const left = supportWire(-0.0032, 0.0004);
-    const right = supportWire(0.0032, -0.0004);
-    const coilPts = [];
-    const turns = 12;
-    const coilH = 0.008;
-    for (let i = 0; i <= turns * 12; i++) {
-      const t = i / (turns * 12);
-      const a = t * turns * Math.PI * 2;
-      coilPts.push(new THREE.Vector3(
-        Math.cos(a) * 0.00125,
-        0.039 + t * coilH,
-        Math.sin(a) * 0.00125,
-      ));
-    }
-    coilPts[0].copy(left);
-    coilPts[coilPts.length - 1].copy(right);
+    const leftTip = new THREE.Vector3(-0.0064, 0.0432, 0);
+    const rightTip = new THREE.Vector3(0.0064, 0.0432, 0);
+    const mid = new THREE.Vector3(0, 0.0414, 0);
+    lead([
+      new THREE.Vector3(-0.0007, 0.022, 0),
+      new THREE.Vector3(-0.0007, 0.036, 0),
+      new THREE.Vector3(-0.0032, 0.041, 0),
+      leftTip,
+    ]);
+    lead([
+      new THREE.Vector3(0.0007, 0.022, 0),
+      new THREE.Vector3(0.0007, 0.036, 0),
+      new THREE.Vector3(0.0032, 0.041, 0),
+      rightTip,
+    ]);
+    lead([
+      new THREE.Vector3(0, 0.0342, 0),
+      new THREE.Vector3(0, 0.0396, 0.0004),
+      new THREE.Vector3(0.0005, 0.0416, 0),
+      mid,
+    ]);
+
     filamentMat = new THREE.MeshStandardMaterial({
-      color: 0x2a211c, emissive: new THREE.Color(0x2a0904), emissiveIntensity: 0.15,
-      roughness: 0.55, metalness: 0.35,
+      color: tungsten.clone(),
+      metalness: 1,
+      roughness: 0.34,
+      emissive: new THREE.Color(0x000000),
+      emissiveIntensity: 0,
+      envMapIntensity: 1,
     });
-    const filament = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(coilPts), turns * 12, 0.00022, 6, false), filamentMat);
+    const filament = new THREE.Mesh(coilAlong([leftTip, mid, rightTip], 42, 0.0004, 0.00013), filamentMat);
     g.add(filament);
-    filamentLocal.set(x, TOP + 0.043, z);
+    const filY = 0.0422;
+    filamentLocal.set(x, TOP + filY, z);
 
-    const glowTex = softDisc();
     halo = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: glowTex, color: 0xffb060, transparent: true, blending: THREE.AdditiveBlending,
-      depthWrite: false, depthTest: false, toneMapped: true, opacity: 0,
+      map: softDisc(), color: 0xffe2b0, transparent: true, blending: THREE.AdditiveBlending,
+      depthWrite: false, depthTest: false, toneMapped: false, opacity: 0,
     }));
-    halo.position.y = 0.043;
-    halo.scale.set(0.03, 0.038, 1);
+    halo.position.y = filY;
+    halo.scale.set(0.012, 0.012, 1);
     g.add(halo);
-    haloWide = new THREE.Sprite(halo.material.clone());
-    haloWide.position.y = 0.043;
-    haloWide.scale.set(0.048, 0.06, 1);
-    haloWide.material.opacity = 0;
-    g.add(haloWide);
 
-    bulbLight = new THREE.PointLight(0xffb56a, 0, 0.34, 2);
-    bulbLight.position.set(0, 0.043, 0);
+    bulbLight = new THREE.PointLight(0xffc48a, 0, 0.16, 2);
+    bulbLight.position.set(0, filY, 0);
     g.add(bulbLight);
 
     g.position.set(x, TOP, z);
@@ -249,9 +312,7 @@ export function createCircuitExperiment(ctx) {
     for (let y = 0; y < s; y++) {
       for (let x = 0; x < s; x++) {
         const d = Math.hypot((x + 0.5) / s * 2 - 1, (y + 0.5) / s * 2 - 1);
-        // Hollow so the coil stays visible: brightest in a ring, clear in the middle.
-        const ring = Math.exp(-((d - 0.42) ** 2) / 0.08);
-        const a = d > 1 ? 0 : ring * (1 - d * 0.35);
+        const a = Math.exp(-d * d * 3.2);
         const i = (y * s + x) * 4;
         data[i] = data[i + 1] = data[i + 2] = 255;
         data[i + 3] = Math.min(255, a * 255);
@@ -263,57 +324,101 @@ export function createCircuitExperiment(ctx) {
     return tex;
   }
 
-  function makeClip(bootMat) {
-    const g = new THREE.Group();
-    const clipMetal = new THREE.MeshStandardMaterial({ color: 0x8d98a4, metalness: 0.9, roughness: 0.46, envMapIntensity: 0.65 });
-    const jawGeo = new THREE.BoxGeometry(0.0036, 0.00105, 0.02);
-    jawGeo.translate(0, 0, 0.009);
-    const lower = new THREE.Mesh(jawGeo, clipMetal);
-    const upper = new THREE.Mesh(jawGeo, clipMetal);
-    upper.position.y = 0.0031;
-    upper.rotation.x = -0.28;
-    lower.rotation.x = 0.28;
-    g.userData.jaws = [lower, upper];
-    for (const jaw of [lower, upper]) {
-      for (let i = 0; i < 4; i++) {
-        const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.0028, 0.0007, 0.0007), steel);
-        tooth.position.set(0, jaw === upper ? -0.0007 : 0.0007, 0.0155 - i * 0.0025);
-        jaw.add(tooth);
-      }
+  function jawGeometry(sign) {
+    const s = new THREE.Shape();
+    const body = -0.00085 * sign;
+    const inner = 0.00012 * sign;
+    const tooth = 0.00048 * sign;
+    s.moveTo(0, body);
+    s.lineTo(0.022, body * 0.72);
+    s.lineTo(0.022, inner);
+    // Serrations walk back from the tip toward the hinge.
+    let x = 0.0205;
+    for (let i = 0; i < 6; i++) {
+      s.lineTo(x, tooth);
+      s.lineTo(x - 0.00055, tooth);
+      s.lineTo(x - 0.0009, inner);
+      s.lineTo(x - 0.0017, inner);
+      x -= 0.0017;
     }
-    const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.0013, 0.0013, 0.005, 10), steel);
-    pin.rotation.z = Math.PI / 2;
-    const lever = new THREE.Mesh(new THREE.BoxGeometry(0.003, 0.0016, 0.012), nickel);
-    lever.position.set(0, 0.0022, -0.004);
-    const boot = new THREE.Mesh(new THREE.CylinderGeometry(0.0042, 0.0048, 0.016, 16), bootMat);
-    boot.rotation.x = Math.PI / 2;
-    boot.position.z = -0.026;
-    g.add(lower, upper, pin, lever, boot);
-    for (let i = 0; i < 7; i++) {
-      const ang = (i / 7) * Math.PI * 2 + 0.3;
+    s.lineTo(0.004, inner);
+    s.lineTo(0, inner * 1.4);
+    s.closePath();
+    const geo = new THREE.ExtrudeGeometry(s, {
+      depth: 0.0052, bevelEnabled: true, bevelThickness: 0.00012, bevelSize: 0.00012, bevelSegments: 1,
+    });
+    geo.translate(0, 0, -0.0026);
+    geo.rotateY(-Math.PI / 2);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const len = pos.getZ(i);
+      const taper = 1 - 0.38 * Math.max(0, Math.min(1, len / 0.022));
+      pos.setX(i, pos.getX(i) * taper);
+    }
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  let sharedJawLower = null;
+  let sharedJawUpper = null;
+  let sharedSpring = null;
+  let sharedStrands = null;
+  let sharedBoot = null;
+
+  function clipParts() {
+    if (sharedJawLower) return;
+    sharedJawLower = jawGeometry(1);
+    sharedJawUpper = jawGeometry(-1);
+    const springPts = [];
+    for (let i = 0; i <= 28; i++) {
+      const t = i / 28;
+      const a = t * Math.PI * 2 * 3.2;
+      springPts.push(new THREE.Vector3((t - 0.5) * 0.0042, Math.cos(a) * 0.00215, Math.sin(a) * 0.00215));
+    }
+    sharedSpring = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(springPts), 28, 0.00026, 5, false);
+    const strands = [];
+    const count = 18;
+    for (let i = 0; i < count; i++) {
+      const ang0 = (i / count) * Math.PI * 2 + 0.2;
       const pts = [];
-      for (let k = 0; k <= 7; k++) {
-        const t = k / 7;
-        pts.push(new THREE.Vector3(
-          Math.cos(ang + t * 0.55) * (0.0004 + t * 0.0024),
-          Math.sin(ang + t * 0.4) * (0.00035 + t * 0.0016),
-          -0.003 - t * 0.016,
-        ));
+      for (let k = 0; k <= 8; k++) {
+        const t = k / 8;
+        const twist = ang0 + t * Math.PI * 1.5;
+        const bundle = 0.00035 + (1 - t) * 0.00115;
+        pts.push(new THREE.Vector3(Math.cos(twist) * bundle, Math.sin(twist) * bundle, -0.0032 - t * 0.0075));
       }
-      g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 8, 0.00045, 5, false), copper));
+      strands.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 8, 0.00016, 4, false));
     }
+    sharedStrands = mergeGeometries(strands, false);
+    strands.forEach((g) => g.dispose());
+    sharedBoot = new THREE.CylinderGeometry(0.0033, 0.0014, 0.008, 18);
+    sharedBoot.rotateX(Math.PI / 2);
+  }
+
+  function makeClip(bootMat) {
+    clipParts();
+    const g = new THREE.Group();
+    const lower = new THREE.Mesh(sharedJawLower, steel);
+    const upper = new THREE.Mesh(sharedJawUpper, steel);
+    g.userData.jaws = [lower, upper];
+    const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.00115, 0.00115, 0.0062, 12), steel);
+    pin.rotation.z = Math.PI / 2;
+    const spring = new THREE.Mesh(sharedSpring, steel);
+    const boot = new THREE.Mesh(sharedBoot, bootMat);
+    boot.position.z = -0.0095;
+    const strands = new THREE.Mesh(sharedStrands, copper);
     const grab = new THREE.Mesh(
-      new THREE.SphereGeometry(0.013, 10, 8),
+      new THREE.SphereGeometry(0.011, 10, 8),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
     );
-    grab.position.z = -0.006;
-    g.add(grab);
+    grab.position.z = -0.004;
+    g.add(lower, upper, pin, spring, boot, strands, grab);
     g.userData.grab = grab;
     return g;
   }
 
   function makeWire(name, bootMat, insulation, ax, az, bx, bz) {
-    const y = TOP + 0.006;
+    const y = TOP + 0.0042;
     const a = { pos: new THREE.Vector3(ax, y, az), snap: null, clip: makeClip(bootMat) };
     const b = { pos: new THREE.Vector3(bx, y, bz), snap: null, clip: makeClip(bootMat) };
     a.rest = a.pos.clone();
@@ -354,16 +459,16 @@ export function createCircuitExperiment(ctx) {
     if (away.lengthSq() < 1e-8) away.set(0, 0, 1);
     away.normalize();
     // Jaw teeth sit about 10 mm in front of the clip origin. Pull back so they bite the post.
-    const bite = end.snap ? 0.011 : 0.004;
+    const bite = end.snap ? 0.015 : 0.003;
     end.clip.position.copy(tip).addScaledVector(away, -bite);
-    end.clip.position.y = end.snap ? tip.y - 0.0015 : TOP + 0.006;
+    end.clip.position.y = end.snap ? tip.y : TOP + 0.0042;
     root.updateMatrixWorld();
     // Object3D.lookAt aims +Z at the target. Jaws are built along +Z, so aim them at the post.
     const look = end.clip.position.clone().add(away);
     root.localToWorld(look);
     end.clip.up.set(0, 1, 0);
     end.clip.lookAt(look);
-    const open = end.snap ? 0.02 : 0.42;
+    const open = end.snap ? 0.07 : 0.52;
     const jaws = end.clip.userData.jaws;
     if (jaws) {
       jaws[0].rotation.x = open;
@@ -377,45 +482,51 @@ export function createCircuitExperiment(ctx) {
     orientClip(wire.a, b);
     orientClip(wire.b, a);
     root.updateMatrixWorld(true);
-    const start = wire.a.clip.localToWorld(new THREE.Vector3(0, 0, -0.032));
-    const end = wire.b.clip.localToWorld(new THREE.Vector3(0, 0, -0.032));
+    const start = wire.a.clip.localToWorld(new THREE.Vector3(0, 0, -0.014));
+    const end = wire.b.clip.localToWorld(new THREE.Vector3(0, 0, -0.014));
     root.worldToLocal(start);
     root.worldToLocal(end);
-    const lift = start.clone().lerp(end, 0.33);
-    const lift2 = start.clone().lerp(end, 0.66);
-    const rise = Math.min(0.008, start.distanceTo(end) * 0.035);
-    lift.y = Math.max(start.y, end.y) + rise;
-    lift2.y = Math.max(start.y, end.y) + rise * 0.7;
-    // Snapped leads stay low and route behind the bulb so the glass stays clear.
-    let pts = [start, lift, lift2, end];
+    const boardY = TOP + WIRE_R;
+    let anchors = [start, end];
     if (wire.a.snap && wire.b.snap && wire.name === 'black') {
-      pts = [
+      anchors = [
         start,
-        new THREE.Vector3(0.145, TOP + 0.008, 0.02),
-        new THREE.Vector3(0.145, TOP + 0.008, -0.095),
-        new THREE.Vector3(-0.13, TOP + 0.008, -0.095),
+        new THREE.Vector3(0.142, boardY, 0.02),
+        new THREE.Vector3(0.142, boardY, -0.09),
+        new THREE.Vector3(-0.125, boardY, -0.09),
         end,
       ];
     } else if (wire.a.snap && wire.b.snap && wire.name === 'red') {
-      pts = [
+      anchors = [
         start,
-        new THREE.Vector3(-0.125, TOP + 0.009, 0.03),
-        new THREE.Vector3(-0.1, TOP + 0.009, -0.02),
+        new THREE.Vector3(-0.13, boardY, 0.04),
+        new THREE.Vector3(-0.12, boardY, -0.02),
         end,
       ];
-    } else if (wire.a.snap && wire.b.snap) {
-      lift.y = TOP + 0.008;
-      lift2.y = TOP + 0.008;
-      pts = [start, lift, lift2, end];
     }
+    const pts = [];
+    for (let s = 0; s < anchors.length - 1; s++) {
+      const steps = 5;
+      for (let i = 0; i < steps; i++) {
+        pts.push(new THREE.Vector3().lerpVectors(anchors[s], anchors[s + 1], i / steps));
+      }
+    }
+    pts.push(anchors[anchors.length - 1].clone());
+    for (let i = 1; i < pts.length - 1; i++) {
+      const t = i / (pts.length - 1);
+      const edge = Math.min(1, Math.min(t, 1 - t) / 0.14);
+      pts[i].y = THREE.MathUtils.lerp(pts[i].y, boardY, edge);
+    }
+    pts[0].copy(start);
+    pts[pts.length - 1].copy(end);
     const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
     wire.curve = curve;
     if (wire.mesh.geometry) wire.mesh.geometry.dispose();
     const dist = start.distanceTo(end);
-    const segs = Math.max(8, Math.min(36, Math.round(dist * 90)));
+    const segs = Math.max(8, Math.min(48, Math.round(dist * 120)));
     wire.mesh.geometry = dist < 0.012
       ? new THREE.BufferGeometry()
-      : new THREE.TubeGeometry(curve, segs, 0.0017, 8, false);
+      : new THREE.TubeGeometry(curve, segs, WIRE_R, 8, false);
   }
 
   function terminalById(id) { return terminals.find((t) => t.id === id); }
@@ -471,8 +582,8 @@ export function createCircuitExperiment(ctx) {
   function layoutKnife() {
     if (!knife) return;
     const left = terminalById('swL');
-    knife.position.set(left.x, TOP + 0.0115, left.z);
-    knife.rotation.z = switchOn ? -0.02 : 0.92;
+    knife.position.set(left.x, TOP + 0.0082, left.z);
+    knife.rotation.z = switchOn ? -0.03 : 0.68;
   }
 
   function graphClosed() {
@@ -675,42 +786,55 @@ export function createCircuitExperiment(ctx) {
     const flick = heat > 0.35 ? 1 + Math.sin(performance.now() * 0.047) * 0.025 + Math.sin(performance.now() * 0.091) * 0.015 : 1;
     const h = Math.max(0, Math.min(1, heat * flick));
     if (filamentMat) {
-      const cold = new THREE.Color(0x2a0904);
-      const red = new THREE.Color(0xff3a08);
-      const em = cold.clone();
-      if (h < 0.45) em.lerp(red, h / 0.45);
-      else em.copy(red).lerp(new THREE.Color(0xffb03a), (h - 0.45) / 0.55);
-      filamentMat.emissive.copy(em);
-      filamentMat.emissiveIntensity = 0.12 + h * 0.48;
-      filamentMat.color.copy(em).multiplyScalar(0.35);
+      if (h < 0.015) {
+        filamentMat.color.copy(tungsten);
+        filamentMat.emissive.setRGB(0, 0, 0);
+        filamentMat.emissiveIntensity = 0;
+      } else if (h < 0.4) {
+        filamentMat.emissive.copy(heatRed).lerp(heatOrange, h / 0.4);
+        filamentMat.emissiveIntensity = 0.8 + h * 2.2;
+        filamentMat.color.set(0x3a2a28);
+      } else if (h < 0.75) {
+        filamentMat.emissive.copy(heatOrange).lerp(heatWhite, (h - 0.4) / 0.35);
+        filamentMat.emissiveIntensity = 1.6 + h * 2.4;
+        filamentMat.color.copy(filamentMat.emissive).multiplyScalar(0.3);
+      } else {
+        filamentMat.emissive.copy(heatWhite);
+        filamentMat.emissiveIntensity = 2.4 + h * 1.6;
+        filamentMat.color.set(0xfff3d4);
+      }
     }
     if (glassMat) {
-      glassMat.emissive.setRGB(1, 0.45, 0.12);
-      glassMat.emissiveIntensity = h * 0.2;
-      glassMat.attenuationColor.setRGB(0.96, 0.97 - h * 0.25, 0.97 - h * 0.45);
-      glassMat.attenuationDistance = 0.06;
+      glassMat.emissive.setRGB(1, 0.55, 0.22);
+      glassMat.emissiveIntensity = h * 0.02;
+      glassMat.attenuationColor.setRGB(1, 0.97 - h * 0.12, 0.92 - h * 0.28);
+      glassMat.attenuationDistance = 0.09;
     }
     if (bulbLight) {
-      bulbLight.intensity = h * 0.42;
-      bulbLight.color.setRGB(1, 0.62 + h * 0.15, 0.32);
+      bulbLight.intensity = h * 0.05;
+      bulbLight.color.setRGB(1, 0.72 + h * 0.12, 0.45);
     }
-    if (halo) halo.material.opacity = h * 0.16;
-    if (haloWide) haloWide.material.opacity = h * 0.06;
+    if (halo) {
+      halo.material.color.setHex(0xffb56a);
+      halo.material.opacity = h * 0.32;
+      const s = 0.007 + h * 0.007;
+      halo.scale.set(s, s, 1);
+    }
     updateElectrons(dt, lit);
   }
 
   function focus(camera, controls, mode) {
     camera.near = 0.002;
-    camera.fov = mode === 'wide' ? 42 : mode === 'clip' ? 38 : 24;
+    camera.fov = mode === 'wide' ? 42 : mode === 'clip' ? 36 : 32;
     camera.updateProjectionMatrix();
     root.updateMatrixWorld(true);
     const origin = new THREE.Vector3();
     const look = new THREE.Vector3();
     let alreadyWorld = false;
     if (mode === 'bulb') {
-      origin.set(filamentLocal.x - 0.028, filamentLocal.y + 0.01, filamentLocal.z + 0.026);
+      const dir = new THREE.Vector3(-0.42, 0.22, 0.88).normalize().multiplyScalar(0.05);
+      origin.copy(filamentLocal).add(dir);
       look.copy(filamentLocal);
-      look.y += 0.002;
     } else if (mode === 'clip') {
       const clip = wires.find((w) => w.name === 'red')?.a.clip;
       if (clip) {
@@ -780,36 +904,44 @@ export function createCircuitExperiment(ctx) {
     shadow.position.y = 0.001;
     add(shadow);
 
-    const holder = new THREE.Mesh(new THREE.BoxGeometry(0.078, 0.012, 0.036), absBlack);
-    holder.position.set(-0.075, TOP + 0.006, 0);
+    const holder = new THREE.Mesh(new RoundedBoxGeometry(0.082, 0.011, 0.038, 3, 0.0014), absBlack);
+    holder.position.set(-0.075, TOP + 0.0055, 0);
     add(holder);
     cell(-0.075, -0.008);
     cell(-0.075, 0.008);
-    const plusCap = new THREE.Mesh(new THREE.BoxGeometry(0.007, 0.012, 0.03), new THREE.MeshStandardMaterial({ color: 0x9a2430, roughness: 0.5 }));
-    plusCap.position.set(-0.04, TOP + 0.01, 0);
-    const minusCap = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.028), absBlack);
-    minusCap.position.set(-0.11, TOP + 0.01, 0);
-    add(plusCap); add(minusCap);
+    for (const zc of [-0.008, 0.008]) {
+      const springPts = [];
+      for (let i = 0; i <= 16; i++) {
+        const t = i / 16;
+        const a = t * Math.PI * 2 * 3;
+        springPts.push(new THREE.Vector3(-0.112 + t * 0.004, TOP + 0.012, zc + Math.sin(a) * 0.0016));
+        springPts[springPts.length - 1].y += Math.cos(a) * 0.0016;
+      }
+      add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(springPts), 16, 0.00035, 5, false), copper));
+    }
     post(-0.04, 0.082, brass, 'bat+');
     post(-0.11, 0.082, nickel, 'bat-');
     polarityMark('+', -0.04, 0.064, '#9a2430');
     polarityMark('−', -0.11, 0.064, '#1c1c1c');
     clipLocal.set(-0.04, TOP + 0.009, 0.082);
 
-    const base = new THREE.Mesh(new THREE.BoxGeometry(0.062, 0.008, 0.028), ceramic);
-    base.position.set(0, TOP + 0.004, -0.045);
+    const base = new THREE.Mesh(new RoundedBoxGeometry(0.07, 0.007, 0.03, 3, 0.0015), ceramic);
+    base.position.set(0, TOP + 0.0036, -0.045);
     add(base);
     post(-0.02, -0.045, brass, 'swL');
     post(0.02, -0.045, brass, 'swR');
-    const bladeGeo = new THREE.BoxGeometry(0.048, 0.0016, 0.01);
+    const bladeGeo = new THREE.BoxGeometry(0.046, 0.00105, 0.008);
     bladeGeo.translate(0.02, 0, 0);
     knife = new THREE.Mesh(bladeGeo, brass);
     knife.userData.knife = true;
-    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.01, 12), absBlack);
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.0034, 0.0034, 0.012, 16), phenolic);
     handle.rotation.x = Math.PI / 2;
-    handle.position.set(0.04, 0, 0);
+    handle.position.set(0.042, 0, 0);
     handle.userData.knife = true;
     knife.add(handle);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.0023, 0.0023, 0.014, 16), brass);
+    barrel.rotation.x = Math.PI / 2;
+    knife.add(barrel);
     add(knife);
     layoutKnife();
 
