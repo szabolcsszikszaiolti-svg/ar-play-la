@@ -24,6 +24,7 @@ const switcher = $('switcher');
 const switchBtn = $('switchBtn');
 const electronsBtn = $('electronsBtn');
 const circuitResetBtn = $('circuitResetBtn');
+const helpBtn = $('helpBtn');
 
 function setHint(text) { if (hint.textContent !== text) hint.textContent = text; }
 
@@ -69,6 +70,8 @@ const ctx = {
   THREE, GLTFLoader, MeshoptDecoder, scene, camera, renderer, card, muteBtn,
   setHint,
   getControls: () => controls,
+  isAR: () => renderer.xr.isPresenting,
+  uiBusy: () => !switcher.hidden,
 };
 const factories = {
   volcano: () => createVolcanoExperiment(ctx),
@@ -433,9 +436,8 @@ async function startAR() {
     try { lightProbe = await session.requestLightProbe(); } catch (e) { lightProbe = null; }
   }
 
-  overlay.querySelectorAll('button, #touch').forEach((b) => {
-    b.addEventListener('beforexrselect', (ev) => ev.preventDefault());
-  });
+  session.addEventListener('selectstart', onXRSelectStart);
+  session.addEventListener('selectend', onXRSelectEnd);
   session.addEventListener('select', () => {
     if (!active || active.root.visible || !reticle.visible || reticleShown < 0.12) return;
     active.root.position.copy(smoothedPos);
@@ -451,6 +453,8 @@ async function startAR() {
   session.addEventListener('end', () => {
     for (const s of hitSources) { try { s.source.cancel(); } catch (e) { /* already ended */ } }
     hitSources = []; xrSession = null; lightProbe = null; planeDetectionOn = false;
+    xrPick = null;
+    if (active?.id === 'circuit') active.onLeave();
     scene.remove(xrLightProbe); xrLightProbe.intensity = 0;
     reticle.visible = false; exitBtn.hidden = true; resetBtn.hidden = true; arBtn.hidden = false;
     touch.hidden = true;
@@ -534,7 +538,8 @@ function syncButtons() {
   circuitResetBtn.hidden = !circuit;
   switchBtn.hidden = !exp;
   muteBtn.hidden = exp?.id === 'circuit';
-  touch.hidden = !(inAR && circuit);
+  touch.hidden = true;
+  helpBtn.hidden = !circuit;
   const title = exp?.id === 'circuit' ? '💡 AR Play Lab' : exp?.id === 'volcano' ? '🌋 AR Play Lab' : '🔬 AR Play Lab';
   $('title').textContent = title;
   if (exp?.id === 'circuit') card.hidden = true;
@@ -610,6 +615,60 @@ async function selectExperiment(id) {
 
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
+const xrRay = new THREE.Ray();
+const xrQuat = new THREE.Quaternion();
+let xrPick = null;
+let pointerHeld = false;
+
+function circuitLive() {
+  return !!(active && active.id === 'circuit' && active.root.visible && active.onXRStart);
+}
+function onXRSelectStart(ev) {
+  const src = ev.inputSource;
+  if (!src || src.targetRayMode !== 'screen') return;
+  if (!circuitLive() || !switcher.hidden) return;
+  xrPick = { source: src, start: true, end: false, down: true };
+}
+function onXRSelectEnd(ev) {
+  const src = ev.inputSource;
+  if (!src || src.targetRayMode !== 'screen') return;
+  if (!xrPick) return;
+  xrPick.source = src;
+  xrPick.end = true;
+  xrPick.down = false;
+}
+function poseToRay(pose) {
+  const p = pose.transform.position;
+  const o = pose.transform.orientation;
+  xrQuat.set(o.x, o.y, o.z, o.w);
+  xrRay.origin.set(p.x, p.y, p.z);
+  xrRay.direction.set(0, 0, -1).applyQuaternion(xrQuat);
+  return xrRay;
+}
+function updateScreenRay(frame, dt) {
+  if (!xrPick) return;
+  if (!frame || !xrSession || !circuitLive()) { xrPick = null; return; }
+  const refSpace = renderer.xr.getReferenceSpace();
+  const pose = xrPick.source ? frame.getPose(xrPick.source.targetRaySpace, refSpace) : null;
+  if (!pose) {
+    if (xrPick.end) {
+      xrPick.misses = (xrPick.misses || 0) + 1;
+      if (xrPick.misses > 3) xrPick = null;
+    }
+    return;
+  }
+  const ray = poseToRay(pose);
+  if (xrPick.start) {
+    active.onXRStart(ray);
+    xrPick.start = false;
+  } else if (xrPick.down) {
+    active.onXRMove(ray, dt);
+  }
+  if (xrPick.end) {
+    active.onXREnd(ray);
+    xrPick = null;
+  }
+}
 function rayFromEvent(ev) {
   const rect = renderer.domElement.getBoundingClientRect();
   const x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
@@ -624,23 +683,30 @@ function rayFromEvent(ev) {
   return raycaster;
 }
 function pointerDown(ev) {
-  if (!active?.onPointerDown) return;
-  if (active.onPointerDown(rayFromEvent(ev))) {
+  if (renderer.xr.isPresenting) return;
+  if (!active?.onXRStart) return;
+  if (active.onXRStart(rayFromEvent(ev))) {
     ev.preventDefault();
     ev.stopPropagation();
     if (ev.currentTarget.setPointerCapture) {
       try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch (e) { /* already gone */ }
     }
     if (controls) controls.enabled = false;
+    pointerHeld = true;
   }
 }
 function pointerMove(ev) {
-  if (!active?.onPointerMove) return;
-  if (active.onPointerMove(rayFromEvent(ev))) ev.preventDefault();
+  if (renderer.xr.isPresenting) return;
+  if (!active) return;
+  const ray = rayFromEvent(ev);
+  if (pointerHeld && active.onXRMove) {
+    if (active.onXRMove(ray, 0.016)) ev.preventDefault();
+  } else if (active.onXRHover) active.onXRHover(ray);
 }
 function pointerUp(ev) {
-  if (!active?.onPointerUp) return;
-  active.onPointerUp();
+  if (renderer.xr.isPresenting) return;
+  if (pointerHeld && active?.onXREnd) active.onXREnd(rayFromEvent(ev));
+  pointerHeld = false;
   if (controls && !xrSession) controls.enabled = true;
 }
 renderer.domElement.addEventListener('pointerdown', pointerDown, true);
@@ -661,6 +727,7 @@ function loop(timeMs, frame) {
     } catch (e) { /* probe not ready */ }
   }
   if (xrSession && active && !active.root.visible) updatePlacement(frame, dt, timeMs * 0.001);
+  updateScreenRay(frame, dt);
   if (controls && controls.enabled) controls.update();
   if (active) active.update(dt, timeMs * 0.001);
   renderer.render(scene, camera);
@@ -681,6 +748,10 @@ resetBtn.addEventListener('click', () => {
   setHint(active.hints.move);
 });
 circuitResetBtn.addEventListener('click', () => active?.reset?.());
+helpBtn.addEventListener('click', () => active?.assist?.());
+overlay.addEventListener('beforexrselect', (ev) => {
+  if (ev.target.closest && ev.target.closest('button')) ev.preventDefault();
+});
 electronsBtn.addEventListener('click', () => {
   if (!active?.toggleElectrons) return;
   const on = active.toggleElectrons();
@@ -718,6 +789,8 @@ async function init() {
     focusSide: () => experiments.volcano?.focusSide?.(),
     focusCircuit: (mode) => experiments.circuit?.focus?.(camera, controls, mode || 'wide'),
     connectCircuit: () => experiments.circuit?.connectAll?.(),
+    assistCircuit: () => experiments.circuit?.assist?.() ?? false,
+    simulateCircuit: (origin, direction) => experiments.circuit?.simulateTap?.(origin, direction) ?? null,
     debugCircuit: () => experiments.circuit?.debugState?.(),
     resetCircuit: () => experiments.circuit?.reset?.(),
   };

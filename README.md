@@ -4,7 +4,7 @@
 
 **Vulcanul** este modelul sculptat `assets/volcano.glb` (meshopt) cu texturi foto CC0. **„Erupe!”** pornește lava, bombele și fumul. Poți apropia telefonul și te uiti în crater.
 
-**Circuitul** este construit în three.js, la scară de masă (placa are ~30 cm). Tragi clema unui fir până la o bornă (se lipește când e aproape), apoi închizi întrerupătorul. Când bucla baterie–fir–întrerupător–bec–fir–baterie e închisă, filamentul se încălzește, sticla capătă o aură caldă și o lumină reală cade pe placă. **„✦ Electroni”** arată puncte mici de-a lungul firelor (oprit implicit). **„↺ Resetează”** desface firele.
+**Circuitul** este construit în three.js, la scară de masă (placa are ~30 cm). Atingi un capăt de fir, apoi un șurub: se lipește singur. Poți și ține degetul și trage, dar nu e nevoie de precizie. Apoi închizi întrerupătorul. Când bucla baterie–fir–întrerupător–bec–fir–baterie e închisă, filamentul se încălzește, sticla capătă o aură caldă și o lumină reală cade pe placă. **„👉 Ajută-mă”** leagă următorul fir. **„✦ Electroni”** arată puncte mici de-a lungul firelor (oprit implicit). **„↺ Resetează”** desface firele.
 
 Texturile CC0 (rocă Poly Haven, lavă și lemn ambientCG) sunt în [`CREDITS.md`](CREDITS.md). Pe desktop / iPhone se deschide automat **modul 3D** (fără cameră).
 
@@ -45,7 +45,7 @@ Deschide pe telefon linkul `https://...` afișat de tunel.
 3. Stai pe scaun, ține telefonul **puțin mai sus** și mișcă-l încet deasupra unei mese luminate, cu textură (nu sticlă/alb lucios). Apare **reticulul galben pe masă**, nu pe tastatură, mouse sau piciorul monitorului. Dacă nu găsește masa, textul spune: „Ține telefonul puțin mai sus și mișcă-l încet”.
 4. **Atinge ecranul** → experimentul apare pe masă, cu umbră de contact. Lumina ar trebui să semene cu camera (dacă telefonul dă light estimation).
 5. La vulcan: **„🔥 Erupe!”** → lavă pe pante, fum, scântei, un ușor tremur, sunet. **🔊** (stânga sus) oprește sunetul. Apoi cardul „Ce s-a întâmplat?”. Apropie telefonul și uită-te **în crater**.
-6. La circuit: trage o clemă pe o bornă (se lipește când e aproape), leagă bucla și închide întrerupătorul. Textul devine „Circuit închis!…”. Apropie telefonul de bec și uită-te **în sticlă**, la filament. **„✦ Electroni”** pornește punctele de pe fire. **„↺ Resetează”** le desface.
+6. La circuit: pune telefonul pe masă și apleacă-te. **Atinge** un capăt de fir (se aprinde), apoi **atinge** șurubul. Dacă mâna tremură, nu trage: ținta e lată. După ~20 s, capătul următor pulsează. **„👉 Ajută-mă”** leagă următorul fir singur. Închide întrerupătorul. Textul devine „Circuit închis!…”. Apropie telefonul de bec și uită-te **în sticlă**, la filament. **„✦ Electroni”** pornește punctele de pe fire. **„↺ Resetează”** le desface.
 7. **„⇄ Schimbă”** trece la celălalt experiment, pe aceeași masă, fără să ieși din AR. **„↺ Mută”** îl pune în alt loc. **„✕ Ieși”** închide AR.
 
 ### Probleme frecvente
@@ -61,6 +61,6 @@ Safari pe iOS **nu** suportă WebXR AR, deci pe iPhone se vede doar modul 3D (ro
 - Sintaxa JS (`node --check`)
 - Modul fallback 3D în Chrome headless, servit din subcalea `/ar-play-la/`: fără erori în consolă, bara de încărcare dispare, „Erupe!” pornește lavă / fum / scântei
 - **De retestat pe telefon (vulcan, neschimbat):** cheagurile cad pe pante sau pe masă și se închid la culoare; pâraiele stau pe stâncă, în chei, și înaintează încet (~14 s).
-- **De retestat pe telefon (circuit):** trage clemele, închide întrerupătorul, apoi apropie telefonul la 5–10 cm de bec și de o clemă de pe borna bateriei.
+- **De retestat pe telefon (circuit):** în AR, atinge un fir apoi un șurub (fără să tragi). Butoanele de sus și de jos rămân apăsabile. Apropie telefonul la 5–10 cm de bec și de o clemă.
 
 Specificația de produs: [`docs/MVP_SPEC.md`](docs/MVP_SPEC.md).

@@ -37,7 +37,7 @@
 - **Ce se întâmplă:** când circuitul e închis, apar „bilute” de electricitate care circulă pe fir și becul se aprinde (lumină caldă pe masă); dacă deschide întrerupătorul, becul se stinge. Mod bonus: înlocuiește un fir cu „lemn” vs „metal” (conductor/izolator).
 - **Ce învață:** curentul circulă doar printr-un **cerc închis**; metalul conduce, lemnul/plasticul nu.
 - **Asset-uri:** baterie, bec (cu stare aprins/stins + emisivă), 2 fire cu capete „snap”, întrerupător, particule pentru curent, materiale lemn/metal, sunet „clic” + „zumzet”, card explicativ.
-- **Prototip (acum):** placa de lemn, 2×AA, bec cu filament, întrerupător și 3 fire cu cleme sunt în pagină. Electronii animați sunt opționali și opriți implicit. Bonusul lemn/metal nu este încă inclus.
+- **Prototip (acum):** placa de lemn, 2×AA, bec cu filament, întrerupător și 3 fire cu cleme sunt în pagină. În AR atingi capătul, apoi șurubul (ținte de ~4,5 cm); tragerea rămâne opțională. **Ajută-mă** leagă următorul fir. Electronii animați sunt opționali și opriți implicit. Bonusul lemn/metal nu este încă inclus.
 
 ### 🌱 2.3 Creșterea plantei (timelapse)
 - **Suprafață:** podea sau masă (ghiveci ~20 cm; pe podea poate crește „mare”).

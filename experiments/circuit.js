@@ -2,6 +2,10 @@
 // filament, glass and stripped copper still read from a few centimetres away.
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import {
+  HIT_RADIUS, SWITCH_RADIUS, DRAG_SNAP, DRAG_ARM, ASSIST_AFTER, STEPS,
+  pickNearest, nextStep,
+} from './circuit-input.js';
 
 export function createCircuitExperiment(ctx) {
   const { THREE, scene, renderer } = ctx;
@@ -21,7 +25,14 @@ export function createCircuitExperiment(ctx) {
   let halo = null;
   let heat = 0;
   let electronsOn = false;
-  let drag = null;
+  let held = null;
+  let gesture = null;
+  let hover = null;
+  let idle = 0;
+  let snapKey = '';
+  let animTime = 0;
+  let switchRing = null;
+  const pickRay = new THREE.Raycaster();
   let built = false;
   const dots = [];
   const filamentLocal = new THREE.Vector3();
@@ -52,6 +63,16 @@ export function createCircuitExperiment(ctx) {
     tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy() || 1);
     return tex;
   }
+
+  const ringGeo = new THREE.TorusGeometry(0.02, 0.0022, 6, 22);
+  function makeRing() {
+    const mesh = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
+      color: 0xffd23f, transparent: true, opacity: 0, depthWrite: false, toneMapped: false,
+    }));
+    mesh.visible = false;
+    mesh.rotation.x = Math.PI / 2;
+    return mesh;
+  }
   function add(mesh) { root.add(mesh); return mesh; }
 
   function post(x, z, colorMat, id) {
@@ -73,7 +94,10 @@ export function createCircuitExperiment(ctx) {
     g.position.set(x, TOP, z);
     add(g);
     head.material = colorMat.clone();
-    const t = { id, x, z, y: TOP + 0.0069, mesh: head, mat: head.material };
+    const ring = makeRing();
+    ring.position.y = 0.015;
+    g.add(ring);
+    const t = { id, x, z, y: TOP + 0.0069, mesh: head, mat: head.material, ring };
     t.base = head.material.emissive.clone();
     terminals.push(t);
     return t;
@@ -99,7 +123,7 @@ export function createCircuitExperiment(ctx) {
     for (const cx of [78, 334]) {
       g.save();
       g.translate(cx, 128);
-      g.rotate(-Math.PI / 2);
+      g.rotate(Math.PI / 2);
       g.font = 'bold 86px Georgia, "Times New Roman", serif';
       g.fillText('1.5V', 0, -6);
       g.font = 'bold 58px Georgia, serif';
@@ -167,17 +191,16 @@ export function createCircuitExperiment(ctx) {
     const ry = 0.0168;
     const neckR = 0.00525;
     const neckY = 0.0132;
-    const dyJoin = -Math.sqrt(Math.max(0, 1 - (neckR / rx) ** 2));
-    const yJoin = cy + dyJoin * ry;
+    const phiJoin = -Math.acos(Math.min(1, neckR / rx));
+    const yJoin = cy + Math.sin(phiJoin) * ry;
     pts.push(new THREE.Vector2(neckR, neckY));
     pts.push(new THREE.Vector2(neckR, yJoin));
-    const n = 40;
+    const n = 48;
     for (let i = 1; i <= n; i++) {
-      const u = i / n;
-      const y = yJoin + u * (cy + ry - yJoin);
-      const dy = (y - cy) / ry;
-      const r = rx * Math.sqrt(Math.max(0, 1 - dy * dy));
-      pts.push(new THREE.Vector2(Math.max(0.0004, r), y));
+      const phi = phiJoin + (i / n) * (Math.PI / 2 - phiJoin);
+      const r = i === n ? 0 : rx * Math.cos(phi);
+      const y = cy + ry * Math.sin(phi);
+      pts.push(new THREE.Vector2(Math.max(0, r), y));
     }
     return pts;
   }
@@ -226,17 +249,17 @@ export function createCircuitExperiment(ctx) {
     glassMat = new THREE.MeshPhysicalMaterial({
       color: 0xffffff,
       metalness: 0,
-      roughness: 0.025,
+      roughness: 0.045,
       transmission: 1,
       thickness: 0.0011,
       ior: 1.5,
       transparent: true,
       attenuationColor: new THREE.Color(0xf7f8f8),
       attenuationDistance: 0.09,
-      clearcoat: 1,
-      clearcoatRoughness: 0.02,
-      envMapIntensity: 1.45,
-      specularIntensity: 1,
+      clearcoat: 0.12,
+      clearcoatRoughness: 0.35,
+      envMapIntensity: 0.35,
+      specularIntensity: 0.2,
       side: THREE.FrontSide,
     });
     g.add(new THREE.Mesh(new THREE.LatheGeometry(pearProfile(), 80), glassMat));
@@ -252,8 +275,11 @@ export function createCircuitExperiment(ctx) {
     g.add(bead);
 
     const leadR = 0.00016;
+    const leadMat = new THREE.MeshStandardMaterial({
+      color: 0x9aa0a8, metalness: 0.7, roughness: 0.58, envMapIntensity: 0.28,
+    });
     function lead(points) {
-      g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 16, leadR, 5, false), nickel));
+      g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 16, leadR, 5, false), leadMat));
     }
     const leftTip = new THREE.Vector3(-0.0064, 0.0432, 0);
     const rightTip = new THREE.Vector3(0.0064, 0.0432, 0);
@@ -391,7 +417,7 @@ export function createCircuitExperiment(ctx) {
     }
     sharedStrands = mergeGeometries(strands, false);
     strands.forEach((g) => g.dispose());
-    sharedBoot = new THREE.CylinderGeometry(0.0033, 0.0014, 0.008, 18);
+    sharedBoot = new THREE.CylinderGeometry(0.00205, 0.00155, 0.0067, 18);
     sharedBoot.rotateX(Math.PI / 2);
   }
 
@@ -405,7 +431,7 @@ export function createCircuitExperiment(ctx) {
     pin.rotation.z = Math.PI / 2;
     const spring = new THREE.Mesh(sharedSpring, steel);
     const boot = new THREE.Mesh(sharedBoot, bootMat);
-    boot.position.z = -0.0095;
+    boot.position.z = -0.00985;
     const strands = new THREE.Mesh(sharedStrands, copper);
     const grab = new THREE.Mesh(
       new THREE.SphereGeometry(0.011, 10, 8),
@@ -423,10 +449,17 @@ export function createCircuitExperiment(ctx) {
     const b = { pos: new THREE.Vector3(bx, y, bz), snap: null, clip: makeClip(bootMat) };
     a.rest = a.pos.clone();
     b.rest = b.pos.clone();
-    a.clip.userData.end = a;
-    b.clip.userData.end = b;
-    a.clip.userData.grab.userData.end = a;
-    b.clip.userData.grab.userData.end = b;
+    a.which = 'a';
+    b.which = 'b';
+    a.wireName = name;
+    b.wireName = name;
+    for (const end of [a, b]) {
+      end.clip.userData.end = end;
+      end.clip.userData.grab.userData.end = end;
+      end.ring = makeRing();
+      end.ring.position.y = 0.012;
+      end.clip.add(end.ring);
+    }
     const mesh = new THREE.Mesh(new THREE.BufferGeometry(), insulation);
     mesh.frustumCulled = false;
     mesh.castShadow = false;
@@ -531,13 +564,13 @@ export function createCircuitExperiment(ctx) {
 
   function terminalById(id) { return terminals.find((t) => t.id === id); }
 
-  function nearestTerminal(pos, ignore) {
+  function nearestTerminal(pos, ignore, maxDist = DRAG_SNAP) {
     let best = null;
-    let bestD = 0.018;
+    let bestD = maxDist;
     for (const t of terminals) {
       if (ignore && ignore.has(t.id)) continue;
       const d = Math.hypot(pos.x - t.x, pos.z - t.z);
-      if (d < bestD) { bestD = d; best = t; }
+      if (d <= bestD) { bestD = d; best = t; }
     }
     return best;
   }
@@ -557,22 +590,6 @@ export function createCircuitExperiment(ctx) {
     if (terminal) {
       end.pos.set(terminal.x, terminal.y, terminal.z);
     }
-  }
-
-  function highlightNear(pos, exceptEnd) {
-    const near = pos ? nearestTerminal(pos, takenTerminals(exceptEnd)) : null;
-    for (const t of terminals) {
-      const on = near && t === near;
-      t.mat.emissive.setHex(on ? 0x8a5a12 : 0x000000);
-      t.mat.emissiveIntensity = on ? 0.45 : 0;
-    }
-  }
-
-  function snapEnd(end) {
-    const t = nearestTerminal(end.pos, takenTerminals(end));
-    if (!t) return false;
-    setSnap(end, t);
-    return true;
   }
 
   function wireOf(end) {
@@ -621,21 +638,63 @@ export function createCircuitExperiment(ctx) {
     return through && !around;
   }
 
+  function inAR() { return !!(ctx.isAR && ctx.isAR()); }
+
   function refreshHint() {
     if (!root.visible || !ctx.setHint) return;
+    if (held) { ctx.setHint('Acum atinge un șurub'); return; }
     if (graphClosed()) ctx.setHint('Circuit închis! Curentul trece prin filament și îl încălzește.');
     else if (switchOn) ctx.setHint('Întrerupătorul e închis, dar mai lipsește o legătură.');
-    else ctx.setHint('Leagă firele ca să aprinzi becul!');
+    else if (inAR()) ctx.setHint('Pune telefonul jos și apleacă-te mai aproape. Atinge un fir, apoi un șurub.');
+    else ctx.setHint('Atinge un capăt de fir, apoi un șurub, ca să aprinzi becul!');
   }
 
-  function endFromHit(hit) {
-    let o = hit.object;
-    while (o) {
-      if (o.userData && o.userData.end) return o.userData.end;
-      if (o.userData && o.userData.knife) return 'knife';
-      o = o.parent;
+  function snapMap() {
+    const snaps = {};
+    for (const w of wires) snaps[w.name] = [w.a.snap, w.b.snap];
+    return snaps;
+  }
+
+  function noteProgress() {
+    const key = wires.map((w) => w.name + (w.a.snap || '') + (w.b.snap || '')).join('|') + (switchOn ? '1' : '0');
+    if (key !== snapKey) { snapKey = key; idle = 0; }
+  }
+
+  const worldPoint = new THREE.Vector3();
+  function targetsWorld() {
+    root.updateMatrixWorld(true);
+    const list = [];
+    for (const w of wires) {
+      for (const end of [w.a, w.b]) {
+        end.clip.getWorldPosition(worldPoint);
+        list.push({
+          type: 'end', end, id: w.name + '-' + end.which,
+          point: [worldPoint.x, worldPoint.y, worldPoint.z], radius: HIT_RADIUS,
+        });
+      }
     }
-    return null;
+    for (const t of terminals) {
+      worldPoint.set(t.x, t.y, t.z).applyMatrix4(root.matrixWorld);
+      list.push({
+        type: 'terminal', terminal: t, id: t.id,
+        point: [worldPoint.x, worldPoint.y, worldPoint.z], radius: HIT_RADIUS,
+      });
+    }
+    if (knife) {
+      worldPoint.set(0.022, 0.006, 0).applyMatrix4(knife.matrixWorld);
+      list.push({
+        type: 'switch', id: 'switch',
+        point: [worldPoint.x, worldPoint.y, worldPoint.z], radius: SWITCH_RADIUS,
+      });
+    }
+    return list;
+  }
+
+  function pick(ray) {
+    const origin = [ray.origin.x, ray.origin.y, ray.origin.z];
+    const direction = [ray.direction.x, ray.direction.y, ray.direction.z];
+    const found = pickNearest(origin, direction, targetsWorld());
+    return found ? found.target : null;
   }
 
   function boardPoint(raycaster) {
@@ -659,49 +718,234 @@ export function createCircuitExperiment(ctx) {
     return local;
   }
 
-  function onPointerDown(raycaster) {
-    if (!built || !root.visible) return false;
-    const hits = raycaster.intersectObject(root, true);
-    for (const hit of hits) {
-      const found = endFromHit(hit);
-      if (found === 'knife') {
-        switchOn = !switchOn;
-        layoutKnife();
-        refreshHint();
-        click(680);
-        return true;
+  function rayOf(raycaster) {
+    return raycaster.ray || raycaster;
+  }
+
+  function toggleSwitch() {
+    switchOn = !switchOn;
+    layoutKnife();
+    click(switchOn ? 680 : 460);
+    noteProgress();
+    refreshHint();
+  }
+
+  function startSnapAnim(end, terminal, delay) {
+    const from = end.pos.clone();
+    setSnap(end, terminal);
+    end.pos.copy(from);
+    end.anim = {
+      from,
+      to: new THREE.Vector3(terminal.x, terminal.y, terminal.z),
+      t: -(delay || 0),
+      dur: 0.18,
+    };
+    const w = wireOf(end);
+    if (w) rebuildWire(w);
+  }
+
+  function handleTap(target) {
+    if (!target) return;
+    if (target.type === 'switch') {
+      toggleSwitch();
+      return;
+    }
+    if (held && target.type === 'terminal') {
+      if (takenTerminals(held).has(target.id)) {
+        click(180);
+        return;
       }
-      if (found && found.pos) {
-        found.snap = null;
-        drag = found;
-        highlightNear(found.pos, found);
-        return true;
+      startSnapAnim(held, target.terminal, 0);
+      held = null;
+      click(420);
+      noteProgress();
+      refreshHint();
+      return;
+    }
+    if (target.type === 'end') {
+      const end = target.end;
+      if (held === end) {
+        held = null;
+        refreshHint();
+        return;
+      }
+      if (end.snap) {
+        end.snap = null;
+        end.anim = null;
+        const w = wireOf(end);
+        if (w) rebuildWire(w);
+        click(300);
+      } else {
+        click(540);
+      }
+      held = end;
+      noteProgress();
+      ctx.setHint?.('Acum atinge un șurub');
+    }
+  }
+
+  function onXRStart(raycaster) {
+    if (!built || !root.visible || ctx.uiBusy?.()) return false;
+    const target = pick(rayOf(raycaster));
+    hover = target;
+    if (!target) return false;
+    gesture = { target, moved: 0, dragging: false, smooth: null, last: null };
+    return true;
+  }
+
+  function onXRMove(raycaster, dt) {
+    if (!built || !root.visible) return false;
+    const ray = rayOf(raycaster);
+    if (!gesture?.dragging) hover = pick(ray);
+    if (!gesture) return false;
+    const end = gesture.target?.type === 'end' ? gesture.target.end : null;
+    if (!end) return true;
+    pickRay.ray.copy(ray);
+    const p = boardPoint(pickRay);
+    if (!p) return true;
+    if (gesture.last) gesture.moved += Math.hypot(p.x - gesture.last.x, p.z - gesture.last.z);
+    gesture.last = p.clone();
+    if (!gesture.dragging && gesture.moved < DRAG_ARM) return true;
+    gesture.dragging = true;
+    if (held === end) held = null;
+    end.snap = null;
+    end.anim = null;
+    const a = 1 - Math.exp(-Math.max(0.001, dt || 0.016) / 0.09);
+    if (!gesture.smooth) gesture.smooth = p.clone();
+    else gesture.smooth.lerp(p, a);
+    end.pos.copy(gesture.smooth);
+    const w = wireOf(end);
+    if (w) rebuildWire(w);
+    return true;
+  }
+
+  function onXREnd(raycaster) {
+    if (!gesture) {
+      hover = null;
+      return false;
+    }
+    const started = gesture;
+    gesture = null;
+    const ray = rayOf(raycaster);
+    if (started.dragging && started.target?.type === 'end') {
+      const end = started.target.end;
+      const term = nearestTerminal(end.pos, takenTerminals(end), DRAG_SNAP);
+      if (term) {
+        startSnapAnim(end, term, 0);
+        held = null;
+        click(420);
+        noteProgress();
+        refreshHint();
+      } else {
+        const w = wireOf(end);
+        if (w) rebuildWire(w);
+        held = end;
+        ctx.setHint?.('Acum atinge un șurub');
+      }
+      hover = null;
+      return true;
+    }
+    handleTap(pick(ray) || started.target);
+    hover = pick(ray);
+    return true;
+  }
+
+  function onXRHover(raycaster) {
+    if (!built || !root.visible || gesture) return;
+    hover = pick(rayOf(raycaster));
+  }
+
+  function showRing(mesh, mode) {
+    if (!mesh) return;
+    if (!mode) { mesh.visible = false; return; }
+    mesh.visible = true;
+    if (mode === 'held') {
+      mesh.material.color.setHex(0x4ade80);
+      mesh.material.opacity = 0.95;
+      mesh.scale.setScalar(1.15);
+    } else if (mode === 'hover') {
+      mesh.material.color.setHex(0xfff3b0);
+      mesh.material.opacity = 0.85;
+      mesh.scale.setScalar(1);
+    } else {
+      const p = 0.5 + 0.5 * Math.sin(animTime * 6);
+      mesh.material.color.setHex(0xff7a1a);
+      mesh.material.opacity = 0.4 + 0.55 * p;
+      mesh.scale.setScalar(1 + 0.45 * p);
+    }
+  }
+
+  function paintFeedback() {
+    const step = idle >= ASSIST_AFTER ? nextStep(snapMap(), switchOn) : null;
+    const dragEnd = gesture?.dragging ? gesture.target?.end : null;
+    const near = dragEnd ? nearestTerminal(dragEnd.pos, takenTerminals(dragEnd), DRAG_SNAP) : null;
+    for (const w of wires) {
+      for (const end of [w.a, w.b]) {
+        let mode = null;
+        if (held === end) mode = 'held';
+        else if (hover?.type === 'end' && hover.end === end) mode = 'hover';
+        else if (step && step.wire === w.name && step.end === end.which) mode = 'pulse';
+        showRing(end.ring, mode);
       }
     }
-    return false;
+    for (const t of terminals) {
+      const hot = (hover?.type === 'terminal' && hover.terminal === t) || near === t
+        || (step && step.terminal === t.id);
+      t.mat.emissive.setHex(hot ? 0x8a5a12 : 0x000000);
+      t.mat.emissiveIntensity = hot ? (step && step.terminal === t.id && hover?.terminal !== t ? 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(animTime * 6)) : 0.5) : 0;
+      let mode = null;
+      if (hover?.type === 'terminal' && hover.terminal === t) mode = 'hover';
+      else if (near === t) mode = 'held';
+      else if (step && step.terminal === t.id) mode = 'pulse';
+      showRing(t.ring, mode);
+    }
+    let switchMode = null;
+    if (hover?.type === 'switch') switchMode = 'hover';
+    else if (step && step.switch) switchMode = 'pulse';
+    showRing(switchRing, switchMode);
   }
 
-  function onPointerMove(raycaster) {
-    if (!drag) return false;
-    const p = boardPoint(raycaster);
-    if (!p) return true;
-    drag.pos.copy(p);
-    highlightNear(drag.pos, drag);
-    const w = wireOf(drag);
-    if (w) rebuildWire(w);
-    return true;
+  function tickAnims(dt) {
+    const dirty = new Set();
+    for (const w of wires) {
+      for (const end of [w.a, w.b]) {
+        if (!end.anim) continue;
+        end.anim.t += dt;
+        if (end.anim.t < 0) continue;
+        const u = Math.min(1, end.anim.t / end.anim.dur);
+        const s = u * u * (3 - 2 * u);
+        end.pos.lerpVectors(end.anim.from, end.anim.to, s);
+        dirty.add(w);
+        if (u >= 1) end.anim = null;
+      }
+    }
+    for (const w of dirty) rebuildWire(w);
   }
 
-  function onPointerUp() {
-    if (!drag) return false;
-    const ok = snapEnd(drag);
-    const w = wireOf(drag);
-    if (w) rebuildWire(w);
-    highlightNear(null);
-    drag = null;
-    if (ok) click(420);
+  function assistNext() {
+    if (!built) return false;
+    const step = nextStep(snapMap(), switchOn);
+    if (!step) return false;
+    held = null;
+    gesture = null;
+    if (step.switch) {
+      if (!switchOn) toggleSwitch();
+      return true;
+    }
+    const wire = wires.find((w) => w.name === step.wire);
+    const todo = STEPS.filter((s) => s.wire === step.wire);
+    let n = 0;
+    for (const s of todo) {
+      const end = s.end === 'a' ? wire.a : wire.b;
+      if (end.snap === s.terminal) continue;
+      if (takenTerminals(end).has(s.terminal)) continue;
+      startSnapAnim(end, terminalById(s.terminal), n * 0.22);
+      n += 1;
+    }
+    if (n) click(420);
+    noteProgress();
     refreshHint();
-    return true;
+    return n > 0;
   }
 
   let audioCtx = null;
@@ -730,6 +974,8 @@ export function createCircuitExperiment(ctx) {
   }
 
   function connectAll() {
+    held = null;
+    gesture = null;
     const red = wires.find((w) => w.name === 'red');
     const blue = wires.find((w) => w.name === 'blue');
     const black = wires.find((w) => w.name === 'black');
@@ -739,23 +985,37 @@ export function createCircuitExperiment(ctx) {
     connectEnd(blue.b, 'bulbA');
     connectEnd(black.a, 'bulbB');
     connectEnd(black.b, 'bat-');
-    for (const w of wires) rebuildWire(w);
+    for (const w of wires) {
+      w.a.anim = null;
+      w.b.anim = null;
+      rebuildWire(w);
+    }
     switchOn = true;
     layoutKnife();
+    noteProgress();
     refreshHint();
+  }
+
+  function clearGesture() {
+    held = null;
+    gesture = null;
+    hover = null;
   }
 
   function resetCircuit() {
     switchOn = false;
+    clearGesture();
     for (const w of wires) {
       for (const e of [w.a, w.b]) {
         e.snap = null;
+        e.anim = null;
         e.pos.copy(e.rest);
       }
       rebuildWire(w);
     }
     layoutKnife();
-    highlightNear(null);
+    noteProgress();
+    idle = 0;
     refreshHint();
   }
 
@@ -778,6 +1038,11 @@ export function createCircuitExperiment(ctx) {
 
   function update(dt) {
     if (!built) return;
+    animTime += dt;
+    tickAnims(dt);
+    if (root.visible && !held && !gesture) idle += dt;
+    else idle = 0;
+    paintFeedback();
     const lit = graphClosed();
     const target = lit ? 1 : 0;
     const tau = target > heat ? 0.12 : 0.42;
@@ -815,6 +1080,7 @@ export function createCircuitExperiment(ctx) {
       bulbLight.color.setRGB(1, 0.72 + h * 0.12, 0.45);
     }
     if (halo) {
+      halo.visible = h > 0.02;
       halo.material.color.setHex(0xffb56a);
       halo.material.opacity = h * 0.32;
       const s = 0.007 + h * 0.007;
@@ -942,6 +1208,9 @@ export function createCircuitExperiment(ctx) {
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.0023, 0.0023, 0.014, 16), brass);
     barrel.rotation.x = Math.PI / 2;
     knife.add(barrel);
+    switchRing = makeRing();
+    switchRing.position.set(0.022, 0.012, 0);
+    knife.add(switchRing);
     add(knife);
     layoutKnife();
 
@@ -971,12 +1240,14 @@ export function createCircuitExperiment(ctx) {
     update,
     onPrimary: null,
     onLift() {},
-    onLeave() { drag = null; highlightNear(null); },
+    onLeave() { clearGesture(); },
     onPlaced: refreshHint,
-    onPointerDown,
-    onPointerMove,
-    onPointerUp,
+    onXRStart,
+    onXRMove,
+    onXREnd,
+    onXRHover,
     reset: resetCircuit,
+    assist: assistNext,
     toggleElectrons() { electronsOn = !electronsOn; return electronsOn; },
     electronsOn: () => electronsOn,
     connectAll,
@@ -988,7 +1259,18 @@ export function createCircuitExperiment(ctx) {
         electronsOn,
         snaps: wires.map((w) => [w.name, w.a.snap, w.b.snap]),
         dots: dots.filter((d) => d.visible).length,
+        held: held ? held.wireName + '-' + held.which : null,
+        targets: built ? targetsWorld().map((t) => ({ type: t.type, id: t.id, point: t.point.slice(), radius: t.radius })) : [],
       };
+    },
+    simulateTap(origin, direction) {
+      const ray = new THREE.Ray(
+        new THREE.Vector3(origin[0], origin[1], origin[2]),
+        new THREE.Vector3(direction[0], direction[1], direction[2]).normalize(),
+      );
+      const hit = onXRStart(ray);
+      onXREnd(ray);
+      return { hit, ...this.debugState() };
     },
     preview: {
       position: [0.24, 0.2, 0.3],
@@ -1000,9 +1282,9 @@ export function createCircuitExperiment(ctx) {
       near: 0.003,
     },
     hints: {
-      preview: 'Leagă firele ca să aprinzi becul!',
+      preview: 'Atinge un capăt de fir, apoi un șurub, ca să aprinzi becul!',
       found: 'Am găsit masa! Atinge ecranul ca să pui circuitul 💡',
-      placed: 'Leagă firele ca să aprinzi becul!',
+      placed: 'Pune telefonul jos și apleacă-te mai aproape. Atinge un fir, apoi un șurub.',
       move: 'Caută un loc nou pe masă și atinge ecranul 👆',
       ready: 'Telefonul tău știe AR! Apasă „Pornește AR” și pune circuitul pe masă. (Sau încearcă aici în 3D.)',
     },
