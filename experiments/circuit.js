@@ -249,20 +249,58 @@ export function createCircuitExperiment(ctx) {
     glassMat = new THREE.MeshPhysicalMaterial({
       color: 0xffffff,
       metalness: 0,
-      roughness: 0.045,
+      roughness: 0.16,
       transmission: 1,
       thickness: 0.0011,
       ior: 1.5,
       transparent: true,
       attenuationColor: new THREE.Color(0xf7f8f8),
       attenuationDistance: 0.09,
-      clearcoat: 0.12,
-      clearcoatRoughness: 0.35,
-      envMapIntensity: 0.35,
-      specularIntensity: 0.2,
+      clearcoat: 0.85,
+      clearcoatRoughness: 0.55,
+      envMapIntensity: 0.5,
+      specularIntensity: 0.45,
       side: THREE.FrontSide,
     });
-    g.add(new THREE.Mesh(new THREE.LatheGeometry(pearProfile(), 80), glassMat));
+    const glassGeo = new THREE.LatheGeometry(pearProfile(), 80);
+    g.add(new THREE.Mesh(glassGeo, glassMat));
+    // Soft rim only. A sharp env reflection is what painted the white smudges
+    // inside the close-up; this edge stays visible from across the table.
+    const rim = new THREE.Mesh(glassGeo, new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      toneMapped: true,
+      uniforms: {
+        tint: { value: new THREE.Color(0xd7e4ee) },
+        power: { value: 1.45 },
+        strength: { value: 0.92 },
+      },
+      vertexShader: `
+        varying vec3 vN;
+        varying vec3 vP;
+        void main() {
+          vec3 p = position + normal * 0.0004;
+          vec4 world = modelMatrix * vec4(p, 1.0);
+          vP = world.xyz;
+          vN = normalize(mat3(modelMatrix) * normal);
+          gl_Position = projectionMatrix * viewMatrix * world;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vN;
+        varying vec3 vP;
+        uniform vec3 tint;
+        uniform float power;
+        uniform float strength;
+        void main() {
+          float ndv = abs(dot(normalize(vN), normalize(cameraPosition - vP)));
+          float fres = pow(1.0 - ndv, power);
+          gl_FragColor = vec4(tint, fres * strength);
+        }
+      `,
+    }));
+    rim.renderOrder = 3;
+    g.add(rim);
 
     const stemMat = new THREE.MeshPhysicalMaterial({
       color: 0xe8f1f0, roughness: 0.08, transmission: 0.92, thickness: 0.0006, transparent: true, ior: 1.5,
